@@ -220,7 +220,7 @@ fun SfBrowseScreen(
 
             // 已选多标签展示条（带一键移除与清除）
             if (selectedTagIds.isNotEmpty()) {
-                val idToName = officialTags.associate { it.id to it.name }
+                val idToName = remember(officialTags) { officialTags.associate { it.id to it.name } }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -276,87 +276,19 @@ fun SfBrowseScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(displayList, key = { it.id }) { item ->
-                        Surface(
-                            onClick = { onOpenBookDetail("sf:${item.id}") },
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                SfBrowseCover(title = item.title, uri = item.cover)
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Text(
-                                        text = item.title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        if (item.author.isNotBlank()) {
-                                            Text(
-                                                text = item.author,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        if (item.markCount > 0L) {
-                                            val mk = if (item.markCount >= 10000) "%.1f万".format(item.markCount / 10000.0) else "${item.markCount}"
-                                            Text(
-                                                text = "$mk 收藏",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                    // 纯净官方系统标签（sysTags）
-                                    if (item.tags.isNotEmpty()) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            item.tags.take(4).forEach { tag ->
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                                                ) {
-                                                    Text(
-                                                        text = tag,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                        style = MaterialTheme.typography.labelSmall
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    } else if (item.intro.isNotBlank()) {
-                                        Text(
-                                            text = item.intro.replace("\n", " ").trim(),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                Icon(Icons.Rounded.ChevronRight, "查看详情", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+                        SfSearchResultCard(
+                            item = item,
+                            onClick = { onOpenBookDetail("sf:${item.id}") }
+                        )
                     }
 
                     // 分页无限滚动加载更多
                     if (hasMoreBrowse) {
                         item {
-                            LaunchedEffect(displayList.size) {
-                                viewModel.loadMoreBrowse()
+                            LaunchedEffect(displayList.size, isBrowseLoadingMore) {
+                                if (!isBrowseLoadingMore) {
+                                    viewModel.loadMoreBrowse()
+                                }
                             }
                             Box(
                                 modifier = Modifier
@@ -520,54 +452,3 @@ fun SfBrowseScreen(
     }
 }
 
-@Composable
-private fun SfBrowseCover(title: String, uri: String?) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val bitmap by produceState<android.graphics.Bitmap?>(null, uri) {
-        value = null
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                if (uri.isNullOrBlank()) return@runCatching null
-                val file = if (uri.startsWith("http://") || uri.startsWith("https://")) {
-                    val coversDir = java.io.File(context.filesDir, "book-covers").apply { mkdirs() }
-                    val hash = java.security.MessageDigest.getInstance("SHA-256").digest(uri.toByteArray()).joinToString("") { "%02x".format(it) }
-                    java.io.File(coversDir, hash).also { target ->
-                        if (!target.exists() || target.length() == 0L) {
-                            val conn = java.net.URL(uri.replaceFirst("http://", "https://")).openConnection().apply {
-                                connectTimeout = 8000
-                                readTimeout = 8000
-                            }
-                            val bytes = conn.getInputStream().use { it.readBytes() }
-                            target.writeBytes(bytes)
-                        }
-                    }
-                } else java.io.File(uri)
-                if (file.exists() && file.length() > 0) {
-                    val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    android.graphics.BitmapFactory.decodeFile(file.path, opts)
-                    val sample = maxOf(1, maxOf(opts.outWidth, opts.outHeight) / 256)
-                    android.graphics.BitmapFactory.decodeFile(file.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
-                } else null
-            }.getOrNull()
-        }
-    }
-    Box(
-        modifier = Modifier
-            .width(54.dp)
-            .height(76.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer),
-        contentAlignment = Alignment.Center
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            Text(title.take(4), modifier = Modifier.padding(6.dp), style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}

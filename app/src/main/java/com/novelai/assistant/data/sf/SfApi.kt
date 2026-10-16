@@ -169,6 +169,28 @@ object SfProtocol {
         }
         return text
     }
+
+    fun parseSearchResult(obj: JsonObject): SfSearchResult? {
+        val id = obj.text("novelId").ifBlank { obj.text("id") }
+        if (!id.matches(Regex("\\d+"))) return null
+        val title = obj.text("novelName").ifBlank { obj.text("name") }.ifBlank { "未命名作品" }
+        val author = obj.text("authorName").ifBlank { obj.text("author") }
+        val cover = obj.obj("expand").text("bigNovelCover").ifBlank { obj.text("novelCover") }.takeIf { it.isNotBlank() }
+        val intro = obj.obj("expand").text("intro").ifBlank { obj.text("intro") }
+        val exp = obj.obj("expand")
+        val tags = (exp["sysTags"] as? JsonArray ?: obj["sysTags"] as? JsonArray ?: exp["tags"] as? JsonArray ?: obj["tags"] as? JsonArray)
+            ?.mapNotNull { (it as? JsonObject)?.text("tagName")?.takeIf { t -> t.isNotBlank() } ?: (it as? JsonPrimitive)?.contentOrNull?.takeIf { t -> t.isNotBlank() } }
+            ?: emptyList()
+        val point = obj.text("point").toFloatOrNull() ?: 0f
+        val mark = obj.text("markCount").toLongOrNull() ?: 0L
+        val views = obj.text("viewTimes").toLongOrNull() ?: 0L
+        return SfSearchResult(id, title, author, cover, intro, tags, point, mark, views)
+    }
+
+    fun parseSearchResults(data: JsonElement): List<SfSearchResult> {
+        val list = if (data is JsonArray) data else (data as? JsonObject)?.array("novels") ?: emptyList()
+        return list.mapNotNull { (it as? JsonObject)?.let { obj -> parseSearchResult(obj) } }
+    }
 }
 
 class SfApi(private val transport: SfTransport, private val device: String, val guard: SfRequestGuard = SfRequestGuard()) {
@@ -210,9 +232,8 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
             if (status.text("errorCode") == "507") throw SfException(SfFailureKind.CLIENT, "菠萝包拒绝了当前客户端标识（507），接口适配需要更新")
             if (code == 429) throw SfException(SfFailureKind.RATE_LIMIT, "请求被限流", response.retryAfterMillis)
             if (code == 417 || response.status == 417) throw SfException(SfFailureKind.SIGNATURE, "签名校验被拒绝，已停止请求")
-            if (code == 401) throw SfException(SfFailureKind.AUTH, if (body == null) "登录已失效，请重新登录" else "登录未成功，请检查账号密码；若需安全验证，请先到官方 App 完成")
+            if (code == 401 || response.status == 401) throw SfException(SfFailureKind.AUTH, if (body == null) "登录已失效，请重新登录" else "登录未成功，请检查账号密码；若需安全验证，请先到官方 App 完成")
             if (code == 403 || response.status == 403) throw SfException(if (path.startsWith("Chaps/") && Regex("购买|订阅|未购|未订|权限").containsMatchIn(serverMessage)) SfFailureKind.UNPURCHASED else SfFailureKind.RISK, "账号无权读取此内容，请在官方 App 确认权限或安全验证")
-            if (code == 401 || response.status == 401) throw SfException(SfFailureKind.AUTH, "登录会话失效，请在官方 App 检查账号")
             if (code !in 200..299 || response.status !in 200..299) throw SfException(if (code in 500..599) SfFailureKind.NETWORK else SfFailureKind.INVALID, "菠萝包接口返回状态 $code，请稍后重试")
             (payload["data"] ?: JsonNull) to response
     }
@@ -277,25 +298,7 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
     suspend fun search(keyword: String, page: Int = 1, size: Int = 20): List<SfSearchResult> {
         val q = java.net.URLEncoder.encode(keyword.trim(), "UTF-8")
         val data = request("search/novels/result?q=$q&page=$page&size=$size&expand=sysTags,tags,intro,bigNovelCover").first
-        val list = if (data is JsonArray) data else (data as? JsonObject)?.array("novels") ?: emptyList()
-        return list.mapNotNull { element ->
-            val obj = element as? JsonObject ?: return@mapNotNull null
-            val id = obj.text("novelId").ifBlank { obj.text("id") }
-            if (!id.matches(Regex("\\d+"))) return@mapNotNull null
-            val title = obj.text("novelName").ifBlank { obj.text("name") }.ifBlank { "未命名作品" }
-            val author = obj.text("authorName").ifBlank { obj.text("author") }
-            val cover = obj.obj("expand").text("bigNovelCover").ifBlank { obj.text("novelCover") }.takeIf { it.isNotBlank() }
-            val intro = obj.obj("expand").text("intro").ifBlank { obj.text("intro") }
-            // 纯净官方系统标签对齐（sysTags 优先，重生/变身/热血等）
-            val exp = obj.obj("expand")
-            val tags = (exp["sysTags"] as? JsonArray ?: obj["sysTags"] as? JsonArray ?: exp["tags"] as? JsonArray ?: obj["tags"] as? JsonArray)
-                ?.mapNotNull { (it as? JsonObject)?.text("tagName")?.takeIf { t -> t.isNotBlank() } ?: (it as? JsonPrimitive)?.contentOrNull?.takeIf { t -> t.isNotBlank() } }
-                ?: emptyList()
-            val point = obj.text("point").toFloatOrNull() ?: 0f
-            val mark = obj.text("markCount").toLongOrNull() ?: 0L
-            val views = obj.text("viewTimes").toLongOrNull() ?: 0L
-            SfSearchResult(id, title, author, cover, intro, tags, point, mark, views)
-        }
+        return SfProtocol.parseSearchResults(data)
     }
 
     suspend fun browseRank(sort: String = "hot", page: Int = 1, size: Int = 20): List<SfSearchResult> {
@@ -307,24 +310,7 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
             else -> "ranks/all/novels?page=$p0&size=$size&expand=bigNovelCover,sysTags,tags,intro"
         }
         val data = request(route).first
-        val list = if (data is JsonArray) data else (data as? JsonObject)?.array("novels") ?: emptyList()
-        return list.mapNotNull { element ->
-            val obj = element as? JsonObject ?: return@mapNotNull null
-            val id = obj.text("novelId").ifBlank { obj.text("id") }
-            if (!id.matches(Regex("\\d+"))) return@mapNotNull null
-            val title = obj.text("novelName").ifBlank { obj.text("name") }.ifBlank { "未命名作品" }
-            val author = obj.text("authorName").ifBlank { obj.text("author") }
-            val cover = obj.obj("expand").text("bigNovelCover").ifBlank { obj.text("novelCover") }.takeIf { it.isNotBlank() }
-            val intro = obj.obj("expand").text("intro").ifBlank { obj.text("intro") }
-            val exp = obj.obj("expand")
-            val tags = (exp["sysTags"] as? JsonArray ?: obj["sysTags"] as? JsonArray ?: exp["tags"] as? JsonArray ?: obj["tags"] as? JsonArray)
-                ?.mapNotNull { (it as? JsonObject)?.text("tagName")?.takeIf { t -> t.isNotBlank() } ?: (it as? JsonPrimitive)?.contentOrNull?.takeIf { t -> t.isNotBlank() } }
-                ?: emptyList()
-            val point = obj.text("point").toFloatOrNull() ?: 0f
-            val mark = obj.text("markCount").toLongOrNull() ?: 0L
-            val views = obj.text("viewTimes").toLongOrNull() ?: 0L
-            SfSearchResult(id, title, author, cover, intro, tags, point, mark, views)
-        }
+        return SfProtocol.parseSearchResults(data)
     }
 
     suspend fun novelDetail(id: String): SfBookDetail {
@@ -384,24 +370,7 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
         val p0 = (page - 1).coerceAtLeast(0)
         val route = "novels/0/sysTags/$sysTagId/novels?page=$p0&size=$size&expand=bigNovelCover,sysTags,tags,intro"
         val data = request(route).first
-        val list = if (data is JsonArray) data else (data as? JsonObject)?.array("novels") ?: emptyList()
-        return list.mapNotNull { element ->
-            val obj = element as? JsonObject ?: return@mapNotNull null
-            val id = obj.text("novelId").ifBlank { obj.text("id") }
-            if (!id.matches(Regex("\\d+"))) return@mapNotNull null
-            val title = obj.text("novelName").ifBlank { obj.text("name") }.ifBlank { "未命名作品" }
-            val author = obj.text("authorName").ifBlank { obj.text("author") }
-            val cover = obj.obj("expand").text("bigNovelCover").ifBlank { obj.text("novelCover") }.takeIf { it.isNotBlank() }
-            val intro = obj.obj("expand").text("intro").ifBlank { obj.text("intro") }
-            val exp = obj.obj("expand")
-            val tags = (exp["sysTags"] as? JsonArray ?: obj["sysTags"] as? JsonArray ?: exp["tags"] as? JsonArray ?: obj["tags"] as? JsonArray)
-                ?.mapNotNull { (it as? JsonObject)?.text("tagName")?.takeIf { t -> t.isNotBlank() } ?: (it as? JsonPrimitive)?.contentOrNull?.takeIf { t -> t.isNotBlank() } }
-                ?: emptyList()
-            val point = obj.text("point").toFloatOrNull() ?: 0f
-            val mark = obj.text("markCount").toLongOrNull() ?: 0L
-            val views = obj.text("viewTimes").toLongOrNull() ?: 0L
-            SfSearchResult(id, title, author, cover, intro, tags, point, mark, views)
-        }
+        return SfProtocol.parseSearchResults(data)
     }
 
     suspend fun browseByMultiTags(sysTagIds: List<Int>, page: Int = 1, size: Int = 20): List<SfSearchResult> {
@@ -409,24 +378,7 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
         val idsStr = sysTagIds.joinToString(",")
         val route = "novels/0/sysTags/novels?sysTagId=$idsStr&page=$p0&size=$size&expand=bigNovelCover,sysTags,tags,intro"
         val data = request(route).first
-        val list = if (data is JsonArray) data else (data as? JsonObject)?.array("novels") ?: emptyList()
-        return list.mapNotNull { element ->
-            val obj = element as? JsonObject ?: return@mapNotNull null
-            val id = obj.text("novelId").ifBlank { obj.text("id") }
-            if (!id.matches(Regex("\\d+"))) return@mapNotNull null
-            val title = obj.text("novelName").ifBlank { obj.text("name") }.ifBlank { "未命名作品" }
-            val author = obj.text("authorName").ifBlank { obj.text("author") }
-            val cover = obj.obj("expand").text("bigNovelCover").ifBlank { obj.text("novelCover") }.takeIf { it.isNotBlank() }
-            val intro = obj.obj("expand").text("intro").ifBlank { obj.text("intro") }
-            val exp = obj.obj("expand")
-            val tags = (exp["sysTags"] as? JsonArray ?: obj["sysTags"] as? JsonArray ?: exp["tags"] as? JsonArray ?: obj["tags"] as? JsonArray)
-                ?.mapNotNull { (it as? JsonObject)?.text("tagName")?.takeIf { t -> t.isNotBlank() } ?: (it as? JsonPrimitive)?.contentOrNull?.takeIf { t -> t.isNotBlank() } }
-                ?: emptyList()
-            val point = obj.text("point").toFloatOrNull() ?: 0f
-            val mark = obj.text("markCount").toLongOrNull() ?: 0L
-            val views = obj.text("viewTimes").toLongOrNull() ?: 0L
-            SfSearchResult(id, title, author, cover, intro, tags, point, mark, views)
-        }
+        return SfProtocol.parseSearchResults(data)
     }
 
     suspend fun wealth(cookie: String): SfWealth {

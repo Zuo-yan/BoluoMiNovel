@@ -188,12 +188,14 @@ fun SfBookDetailScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        SfDetailCover(
+                        com.novelai.assistant.ui.components.AsyncCover(
                             title = title,
                             uri = cover,
                             modifier = Modifier
                                 .width(115.dp)
-                                .height(160.dp)
+                                .height(160.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            maxDimension = 512
                         )
                         Column(
                             modifier = Modifier.weight(1f),
@@ -468,46 +470,3 @@ fun SfBookDetailScreen(
     }
 }
 
-@Composable
-private fun SfDetailCover(title: String, uri: String?, modifier: Modifier) {
-    val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(null, uri) {
-        value = null
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                if (uri.isNullOrBlank()) return@runCatching null
-                val file = if (uri.startsWith("http://") || uri.startsWith("https://")) {
-                    val cache = java.io.File(context.cacheDir, "sf-covers").apply { mkdirs() }
-                    val name = java.security.MessageDigest.getInstance("SHA-256").digest(uri.toByteArray()).joinToString("") { "%02x".format(it) }
-                    java.io.File(cache, name).also { target ->
-                        if (!target.exists()) {
-                            val conn = java.net.URL(uri.replaceFirst("http://", "https://")).openConnection().apply { connectTimeout = 8000; readTimeout = 8000 }
-                            val bytes = conn.getInputStream().use { input ->
-                                val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
-                                while (out.size() <= 2 * 1024 * 1024) { val n = input.read(buffer); if (n < 0) break; out.write(buffer, 0, n) }
-                                out.toByteArray()
-                            }
-                            if (bytes.size > 2 * 1024 * 1024) return@runCatching null
-                            target.writeBytes(bytes)
-                        }
-                    }
-                } else java.io.File(uri)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.path, bounds)
-                BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = (maxOf(bounds.outWidth, bounds.outHeight) / 512).coerceAtLeast(1) })
-            }.getOrNull()
-        }
-    }
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer),
-        contentAlignment = Alignment.Center
-    ) {
-        if (bitmap != null) {
-            Image(bitmap!!.asImageBitmap(), title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        } else {
-            Text(title.take(4), Modifier.padding(8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-        }
-    }
-}

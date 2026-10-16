@@ -50,19 +50,13 @@ fun SfScreen(
     val locals by viewModel.localBooks.collectAsStateWithLifecycle()
     val task by viewModel.task.collectAsStateWithLifecycle()
     val cache by viewModel.cacheBytes.collectAsStateWithLifecycle()
-    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
-    val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
-    val rankList by viewModel.rankList.collectAsStateWithLifecycle()
-    val currentSort by viewModel.currentSort.collectAsStateWithLifecycle()
 
     var more by remember { mutableStateOf(false) }
     var login by remember { mutableStateOf(false) }
     var accountSheet by remember { mutableStateOf(false) }
-    var searchSheet by remember { mutableStateOf(false) }
     var tasks by remember { mutableStateOf(false) }
     var clearCache by remember { mutableStateOf(false) }
     var toolsBook by remember { mutableStateOf<String?>(null) }
-    var searchInput by remember { mutableStateOf("") }
     LaunchedEffect(state.localBookId, state.destination) {
         val id = state.localBookId ?: return@LaunchedEffect
         when (state.destination) {
@@ -71,8 +65,8 @@ fun SfScreen(
             "tools" -> { toolsBook = id; viewModel.consumeDestination() }
         }
     }
-    val progress = locals.associateBy { it.id }
-    val recent = locals.firstOrNull { it.lastReadAt > 0 }
+    val progress = remember(locals) { locals.associateBy { it.id } }
+    val recent = remember(locals) { locals.firstOrNull { it.lastReadAt > 0 } }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 28.dp)) {
         item {
             LargeTitleHeader("菠萝包", subtitle = "好故事，接着读") {
@@ -105,7 +99,13 @@ fun SfScreen(
                 Text("继续阅读", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
                 Surface(onClick = { onOpenBook(recent.id) }, color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .5f), shape = RoundedCornerShape(22.dp)) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        SfCover(recent.title, recent.coverUri, Modifier.width(56.dp).height(78.dp))
+                        com.novelai.assistant.ui.components.AsyncCover(
+                            title = recent.title,
+                            uri = recent.coverUri,
+                            modifier = Modifier.width(56.dp).height(78.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            maxDimension = 256
+                        )
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text(recent.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("读到第 ${recent.currentReadingChapterIndex + 1} 章 · ${recent.readingProgressPercent.toInt()}%", style = MaterialTheme.typography.bodySmall)
@@ -158,90 +158,6 @@ fun SfScreen(
         }
     }
     if (login) SfLoginDialog({ login = false }, safety) { username, password -> login = false; viewModel.login(username, password) }
-    if (searchSheet) ModalBottomSheet(onDismissRequest = { searchSheet = false }) {
-        LaunchedEffect(Unit) {
-            if (rankList.isEmpty() && !isSearching) {
-                viewModel.loadRank("all")
-            }
-        }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).imePadding().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("搜书与榜单", style = MaterialTheme.typography.headlineSmall)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = searchInput,
-                    onValueChange = { searchInput = it },
-                    label = { Text("书名 / 作者 / 书号 / 链接") },
-                    singleLine = true,
-                    trailingIcon = {
-                        if (searchInput.isNotEmpty()) {
-                            IconButton({ searchInput = ""; viewModel.clearSearch() }) {
-                                Icon(Icons.Rounded.Close, "清空")
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                Button(
-                    onClick = {
-                        val trimmed = searchInput.trim()
-                        val extracted = com.novelai.assistant.data.fetcher.SfacgFetcher.extractBookId(trimmed)
-                        if (extracted != null) {
-                            searchSheet = false
-                            onOpenBook("sf:$extracted")
-                        } else if (trimmed.isNotBlank()) {
-                            viewModel.search(trimmed)
-                        }
-                    },
-                    enabled = searchInput.isNotBlank() && !state.busy
-                ) {
-                    Text(if (com.novelai.assistant.data.fetcher.SfacgFetcher.extractBookId(searchInput.trim()) != null) "查看详情" else "搜索")
-                }
-            }
-
-            // 分类榜单切换标签
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "畅销榜", "month" to "人气榜", "week" to "飙升榜", "latest" to "最新更新").forEach { (sortKey, label) ->
-                    FilterChip(
-                        selected = currentSort == sortKey && !isSearching,
-                        onClick = {
-                            searchInput = ""
-                            viewModel.clearSearch()
-                            viewModel.loadRank(sortKey)
-                        },
-                        label = { Text(label) }
-                    )
-                }
-            }
-
-            if (state.busy) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-
-            // 搜索结果或榜单结果展示
-            val displayList = if (isSearching) searchResults else rankList
-            if (displayList.isNotEmpty()) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(displayList, key = { it.id }) { item ->
-                        SfSearchResultRow(item) {
-                            searchSheet = false
-                            onOpenBook("sf:${item.id}")
-                        }
-                    }
-                }
-            } else if (!state.busy) {
-                Box(Modifier.fillMaxWidth().padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (isSearching) "未找到匹配书籍" else "正在获取榜单作品...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
     if (accountSheet) ModalBottomSheet(onDismissRequest = { accountSheet = false }) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("账号与资产", style = MaterialTheme.typography.headlineSmall)
@@ -332,7 +248,13 @@ fun SfScreen(
 private fun SfBookRow(title: String, author: String, cover: String?, progress: String, onRead: () -> Unit, onAction: (String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clickable(onClick = onRead).padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        SfCover(title, cover, Modifier.width(66.dp).height(92.dp))
+        com.novelai.assistant.ui.components.AsyncCover(
+            title = title,
+            uri = cover,
+            modifier = Modifier.width(66.dp).height(92.dp),
+            shape = RoundedCornerShape(10.dp),
+            maxDimension = 256
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (author.isNotBlank()) Text(author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -349,40 +271,6 @@ private fun SfBookRow(title: String, author: String, cover: String?, progress: S
     HorizontalDivider(Modifier.padding(start = 102.dp, end = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f))
 }
 
-@Composable
-private fun SfCover(title: String, uri: String?, modifier: Modifier) {
-    val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(null, uri) {
-        value = null
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                if (uri.isNullOrBlank()) return@runCatching null
-                val file = if (uri.startsWith("http://") || uri.startsWith("https://")) {
-                    val cache = java.io.File(context.cacheDir, "sf-covers").apply { mkdirs() }
-                    val name = java.security.MessageDigest.getInstance("SHA-256").digest(uri.toByteArray()).joinToString("") { "%02x".format(it) }
-                    java.io.File(cache, name).also { target -> if (!target.exists()) {
-                        val conn = java.net.URL(uri.replaceFirst("http://", "https://")).openConnection().apply { connectTimeout = 8000; readTimeout = 8000 }
-                        val bytes = conn.getInputStream().use { input ->
-                            val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
-                            while (out.size() <= 2 * 1024 * 1024) { val n = input.read(buffer); if (n < 0) break; out.write(buffer, 0, n) }
-                            out.toByteArray()
-                        }
-                        if (bytes.size > 2 * 1024 * 1024) return@runCatching null
-                        target.writeBytes(bytes)
-                    } }
-                } else java.io.File(uri)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.path, bounds)
-                BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = (maxOf(bounds.outWidth, bounds.outHeight) / 256).coerceAtLeast(1) })
-            }.getOrNull()
-        }
-    }
-    Box(modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-        if (bitmap != null) Image(bitmap!!.asImageBitmap(), title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Text(title.take(4), Modifier.padding(8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SfCatalogScreen(bookId: String, onBack: () -> Unit, onRead: (Int) -> Unit, viewModel: SfViewModel = hiltViewModel()) {
@@ -397,54 +285,6 @@ fun SfCatalogScreen(bookId: String, onBack: () -> Unit, onRead: (Int) -> Unit, v
             state.error?.let { item { Text(it, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error) } }
             if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             items(chapters, key = { it.id }) { ch -> ListItem(headlineContent = { Text("${ch.chapterIndex + 1}. ${ch.title}") }, supportingContent = { Text(when { ch.downloaded -> "已下载"; ch.content.isNotBlank() -> "已缓存"; ch.isPaid -> "VIP · 读取时检查已购权限"; else -> "免费" }) }, modifier = Modifier.clickable { onRead(ch.chapterIndex) }) }
-        }
-    }
-}
-
-@Composable
-private fun SfSearchResultRow(
-    item: com.novelai.assistant.data.sf.SfSearchResult,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            SfCover(item.title, item.cover, Modifier.width(52.dp).height(72.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (item.author.isNotBlank()) {
-                        Text(item.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (item.markCount > 0L) {
-                        val mk = if (item.markCount >= 10000) "%.1f万".format(item.markCount / 10000.0) else "${item.markCount}"
-                        Text("$mk 收藏", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                if (item.tags.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        item.tags.take(3).forEach { tag ->
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                            ) {
-                                Text(tag, Modifier.padding(horizontal = 4.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                } else if (item.intro.isNotBlank()) {
-                    Text(item.intro.replace("\n", " ").trim(), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Icon(Icons.Rounded.ChevronRight, "开始阅读", tint = MaterialTheme.colorScheme.primary)
         }
     }
 }

@@ -91,8 +91,9 @@ class OpenAiCompatClient @Inject constructor(
                 setBody(json.encodeToString(OpenAiChatRequest.serializer(), request))
             }.execute { response ->
                 if (response.status.value !in 200..299) {
-                    val err = response.bodyAsText().take(500)
-                    emit(StreamEvent.Error("HTTP ${response.status.value}: $err"))
+                    val rawErr = runCatching { response.bodyAsText() }.getOrDefault("")
+                    val msg = AiErrorParser.parse(response.status.value, rawErr, config.providerName.ifBlank { "OpenAI" })
+                    emit(StreamEvent.Error(msg))
                     return@execute
                 }
                 val channel = response.bodyAsChannel()
