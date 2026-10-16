@@ -69,6 +69,8 @@ object Routes {
     const val DISCOVER = "discover"
     const val FANQIE = "fanqie"
     const val SF_CATALOG = "sf_catalog/{bookId}"
+    const val SF_DETAIL = "sf_detail/{bookId}"
+    const val SF_BROWSE = "sf_browse"
     const val ASSISTANT = "assistant"
     const val SETTINGS = "settings"
     const val LISTENING = "listening"
@@ -82,6 +84,8 @@ object Routes {
     fun assistant() = "assistant"
     fun reader(bookId: String) = "reader/$bookId"
     fun readerAt(bookId: String, chapterIndex: Int) = "reader/$bookId?chapter=$chapterIndex"
+    fun sfDetail(bookId: String) = "sf_detail/$bookId"
+    fun sfBrowse() = "sf_browse"
     fun generate(bookId: String, chapterId: String, mode: String) =
         "generate/$bookId/$chapterId?mode=$mode"
     fun tree(bookId: String) = "tree/$bookId"
@@ -137,8 +141,14 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
         }
     }
 
+    val currentSpeakingBookId by appViewModel.ttsPlayer.currentBookId.collectAsStateWithLifecycle()
+    val currentReaderBookId = backStackEntry?.arguments?.getString("bookId")
+    val isReadingCurrentTtsBook = currentRoute?.startsWith("reader") == true &&
+        currentSpeakingBookId.isNotBlank() &&
+        currentReaderBookId == currentSpeakingBookId
+
     val showCapsule = currentRoute != null &&
-        !currentRoute.startsWith("reader") &&
+        !isReadingCurrentTtsBook &&
         currentRoute != Routes.LISTENING &&
         currentRoute != Routes.ONBOARDING
 
@@ -193,11 +203,33 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                     )
                 }
                 composable(Routes.DISCOVER) {
-                    DiscoverScreen(onOpenBook = { navController.navigate(Routes.reader(it)) },
+                    DiscoverScreen(
+                        onOpenBook = { navController.navigate(Routes.sfDetail(it)) },
                         onOpenCatalog = { navController.navigate("sf_catalog/$it") },
-                        onOpenFanqie = { navController.navigate(Routes.FANQIE) })
+                        onOpenFanqie = { navController.navigate(Routes.FANQIE) },
+                        onOpenBrowse = { navController.navigate(Routes.sfBrowse()) }
+                    )
                 }
                 composable(Routes.FANQIE) { com.novelai.assistant.ui.discover.FanqieScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.SF_BROWSE) {
+                    com.novelai.assistant.ui.discover.SfBrowseScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenBookDetail = { navController.navigate(Routes.sfDetail(it)) }
+                    )
+                }
+                composable(Routes.SF_DETAIL, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) { entry ->
+                    val id = entry.arguments?.getString("bookId").orEmpty()
+                    com.novelai.assistant.ui.discover.SfBookDetailScreen(
+                        bookId = id,
+                        onBack = { navController.popBackStack() },
+                        onOpenReader = { bookId, chapterIndex ->
+                            navController.navigate(if (chapterIndex >= 0) Routes.readerAt(bookId, chapterIndex) else Routes.reader(bookId))
+                        },
+                        onOpenCatalog = { bookId ->
+                            navController.navigate("sf_catalog/$bookId")
+                        }
+                    )
+                }
                 composable(Routes.SF_CATALOG, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) { entry ->
                     val id = entry.arguments?.getString("bookId").orEmpty()
                     com.novelai.assistant.ui.discover.SfCatalogScreen(id, { navController.popBackStack() }, { index -> navController.navigate(Routes.readerAt(id, index)) })
@@ -234,6 +266,9 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                     onOpenTree = { navController.navigate(Routes.tree(it)) },
                     onAsk = { bookId, quote, action ->
                         navController.navigate(Routes.readerCompanion(bookId, quote, action))
+                    },
+                    onOpenDetail = { bookId ->
+                        navController.navigate(Routes.sfDetail(bookId))
                     }
                 )
             }

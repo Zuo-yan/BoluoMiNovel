@@ -24,6 +24,7 @@ class SfDownloadManager @Inject constructor(
     private val library: SfLibraryRepository,
     private val db: NovelDatabase,
     private val storage: SecureStorage
+    , private val api: SfApi
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val json = Json { ignoreUnknownKeys = true }
@@ -34,23 +35,34 @@ class SfDownloadManager @Inject constructor(
     val task = _task.asStateFlow()
     private var job: Job? = null
     private var generation = 0
+    init {
+        scope.launch {
+            api.guard.state.collect { protection ->
+                if (protection.blocked && _task.value.running) pause(protection.message)
+            }
+        }
+    }
 
     suspend fun start(bookId: String, chapterIds: List<String>) {
+        val protection = api.guard.state.value
+        if (protection.blocked) throw SfException(protection.kind!!, protection.message)
         check(_task.value.running.not()) { "请先暂停当前下载任务" }
         require(chapterIds.isNotEmpty()) { "请选择章节" }
         _task.value = SfDownloadTask(bookId, db.bookDao().getById(bookId)?.title.orEmpty(), chapterIds.distinct())
         resume()
     }
 
-    fun pause() {
+    fun pause(message: String = "已暂停，成功章节已保存") {
         generation++
         job?.cancel()
-        _task.update { it.copy(running = false, paused = true, message = "已暂停，成功章节已保存") }
+        _task.update { it.copy(running = false, paused = true, message = message) }
         persist()
     }
 
     fun resume() {
         if (_task.value.running || _task.value.chapterIds.isEmpty()) return
+        val protection = api.guard.state.value
+        if (protection.blocked) { pause(protection.message); return }
         val runId = ++generation
         _task.update { it.copy(running = true, paused = false, completed = 0, failures = emptyMap(), message = "正在下载") }
         persist()
@@ -65,14 +77,15 @@ class SfDownloadManager @Inject constructor(
                         _task.update { it.copy(completed = it.completed + 1) }
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) {
-                        if (e is SfException && e.kind in listOf(SfFailureKind.AUTH, SfFailureKind.RISK)) {
+                        if (e is SfException && e.kind in listOf(SfFailureKind.AUTH, SfFailureKind.RISK,
+                                SfFailureKind.RATE_LIMIT, SfFailureKind.SIGNATURE, SfFailureKind.CLIENT, SfFailureKind.COOLDOWN)) {
                             _task.update { it.copy(running = false, paused = true, message = e.message.orEmpty()) }
                             return@launch
                         }
                         _task.update { it.copy(failures = it.failures + (id to (e.message ?: "下载失败"))) }
                     }
                     persist()
-                    if (!hadContent) delay(200) // no artificial delay when reusing cached successes
+                    // Actual network pacing and quotas are shared with reading/search in SfRequestGuard.
                 }
                 _task.update { it.copy(running = false, paused = false,
                     message = "成功 ${it.completed} 章，未购或失败 ${it.failures.size} 章") }

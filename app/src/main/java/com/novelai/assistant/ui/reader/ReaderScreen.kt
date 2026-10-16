@@ -51,6 +51,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Close
@@ -138,6 +139,7 @@ fun ReaderScreen(
     onGenerate: (bookId: String, chapterId: String, mode: String) -> Unit,
     onOpenTree: (String) -> Unit,
     onAsk: (bookId: String, quote: String, action: String) -> Unit,
+    onOpenDetail: ((String) -> Unit)? = null,
     viewModel: ReaderViewModel = hiltViewModel()
 ) {
     val book by viewModel.book.collectAsStateWithLifecycle()
@@ -160,6 +162,10 @@ fun ReaderScreen(
     val ttsSpeed by viewModel.ttsSpeed.collectAsStateWithLifecycle()
     val ttsTimerMode by viewModel.ttsTimerMode.collectAsStateWithLifecycle()
     val ttsTimerRemainingSeconds by viewModel.ttsTimerRemainingSeconds.collectAsStateWithLifecycle()
+    val isCurrentBookSpeaking by viewModel.isCurrentBookSpeaking.collectAsStateWithLifecycle()
+    val activeSpeaking = isCurrentBookSpeaking && ttsSpeaking
+    val activePaused = isCurrentBookSpeaking && ttsPaused
+    val activePosition = if (isCurrentBookSpeaking) ttsPosition else -1
     var timerSheetOpen by remember { mutableStateOf(false) }
 
     val palette = ReaderPalettes.of(settings.bgTheme.name)
@@ -284,9 +290,9 @@ fun ReaderScreen(
                         statusBarPad = statusBarPad,
                         navBarPad = navBarPad,
                         chromeVisible = chromeVisible,
-                        ttsSpeaking = ttsSpeaking,
-                        ttsPaused = ttsPaused,
-                        ttsPosition = ttsPosition,
+                        ttsSpeaking = activeSpeaking,
+                        ttsPaused = activePaused,
+                        ttsPosition = activePosition,
                         isDarkReader = isDarkReader,
                         onToggleChrome = { viewModel.toggleChrome() },
                         onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
@@ -310,9 +316,9 @@ fun ReaderScreen(
                         palette = palette,
                         statusBarPad = statusBarPad,
                         navBarPad = navBarPad,
-                        ttsSpeaking = ttsSpeaking,
-                        ttsPaused = ttsPaused,
-                        ttsPosition = ttsPosition,
+                        ttsSpeaking = activeSpeaking,
+                        ttsPaused = activePaused,
+                        ttsPosition = activePosition,
                         isDarkReader = isDarkReader,
                         onToggleChrome = { viewModel.toggleChrome() },
                         onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
@@ -370,8 +376,8 @@ fun ReaderScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        IconButton(onClick = { viewModel.openToc() }) {
-                            Icon(Icons.Rounded.Menu, contentDescription = "目录", tint = onChromeColor)
+                        IconButton(onClick = { onOpenDetail?.invoke(bookId) ?: viewModel.openToc() }) {
+                            Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = "书籍详情", tint = onChromeColor)
                         }
                         // 夜间模式快捷切换
                         IconButton(onClick = {
@@ -452,8 +458,8 @@ fun ReaderScreen(
         ) {
             Surface(color = Color(palette.chrome).copy(alpha = 0.96f), modifier = Modifier.fillMaxWidth()) {
                 Column {
-                // 听书控制胶囊
-                androidx.compose.animation.AnimatedVisibility(visible = ttsSpeaking || ttsPaused) {
+                // 听书控制胶囊（仅属于当前正在朗读的书籍）
+                androidx.compose.animation.AnimatedVisibility(visible = activeSpeaking || activePaused) {
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -523,7 +529,7 @@ fun ReaderScreen(
                     }
                 }
                 // 语速调节
-                androidx.compose.animation.AnimatedVisibility(visible = ttsSpeaking || ttsPaused) {
+                androidx.compose.animation.AnimatedVisibility(visible = activeSpeaking || activePaused) {
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -564,8 +570,8 @@ fun ReaderScreen(
                         if (chapterIndex > 0) viewModel.setChapterIndex(chapterIndex - 1)
                     }
                     ReaderBarAction(
-                        if (ttsSpeaking || ttsPaused) Icons.Rounded.Stop else Icons.Rounded.Headphones,
-                        "听书", if (ttsSpeaking || ttsPaused) accent else onChromeColor
+                        if (isCurrentBookSpeaking) Icons.Rounded.Stop else Icons.Rounded.Headphones,
+                        "听书", if (isCurrentBookSpeaking) accent else onChromeColor
                     ) {
                         if (ttsReady) {
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)

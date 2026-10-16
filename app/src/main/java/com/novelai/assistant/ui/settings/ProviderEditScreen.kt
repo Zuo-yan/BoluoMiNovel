@@ -27,6 +27,7 @@ import kotlinx.serialization.json.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProviderEditScreen(providerId: String, onBack: () -> Unit, viewModel: ProviderEditViewModel = hiltViewModel()) {
+    com.novelai.assistant.ui.components.SensitiveScreen()
     LaunchedEffect(providerId) { viewModel.load(providerId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val config = state.config

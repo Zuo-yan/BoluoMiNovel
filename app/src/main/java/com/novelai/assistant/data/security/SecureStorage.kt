@@ -6,17 +6,18 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import android.util.AtomicFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
-import javax.crypto.Cipher
+import java.io.File
+import java.security.MessageDigest
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Android Keystore AES-GCM 加密存储。API Key 等敏感信息密文落盘，密钥不出安全硬件。
+ * Keystore AES-GCM；敏感文件不参与备份。硬件保护取决于设备，不作强制保证。
  */
 @Singleton
 class SecureStorage @Inject constructor(
@@ -24,6 +25,7 @@ class SecureStorage @Inject constructor(
 ) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("novel_ai_secure", Context.MODE_PRIVATE)
+    private val secrets = File(context.noBackupFilesDir, "secrets-v2").apply { check(isDirectory || mkdirs()) }
 
     private val masterKey: SecretKey by lazy { getOrCreateKey() }
 
@@ -44,38 +46,42 @@ class SecureStorage @Inject constructor(
         return generator.generateKey()
     }
 
-    fun putEncrypted(key: String, plainText: String) {
+    private fun file(key: String) = AtomicFile(File(secrets, MessageDigest.getInstance("SHA-256")
+        .digest(key.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) } + ".bin"))
+    private fun exists(target: AtomicFile) = target.baseFile.exists() || File(target.baseFile.path + ".bak").exists()
+    @Synchronized fun containsEncrypted(key: String) = exists(file(key)) || prefs.contains(key)
+
+    @Synchronized fun putEncrypted(key: String, plainText: String) {
+        val target = file(key)
         if (plainText.isEmpty()) {
-            prefs.edit().remove(key).apply()
+            target.delete()
+            check(!target.baseFile.exists()) { "无法清除本机敏感数据" }
+            check(prefs.edit().remove(key).commit()) { "无法清除旧版敏感数据" }
             return
         }
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, masterKey)
-        val iv = cipher.iv
-        val cipherText = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-        val packed = ByteArray(1 + iv.size + cipherText.size)
-        packed[0] = iv.size.toByte()
-        iv.copyInto(packed, 1)
-        cipherText.copyInto(packed, 1 + iv.size)
-        prefs.edit().putString(key, Base64.encodeToString(packed, Base64.NO_WRAP)).apply()
+        val packed = SecretEnvelope.seal(key, plainText, masterKey)
+        val out = target.startWrite()
+        try { out.write(packed); target.finishWrite(out) }
+        catch (e: Exception) { target.failWrite(out); throw e }
+        check(prefs.edit().remove(key).commit()) { "敏感文件已保存，但旧版副本清理失败" }
     }
 
-    fun getDecrypted(key: String): String? {
-        val stored = prefs.getString(key, null) ?: return null
-        return try {
-            val packed = Base64.decode(stored, Base64.NO_WRAP)
-            val ivSize = packed[0].toInt()
-            val iv = packed.copyOfRange(1, 1 + ivSize)
-            val cipherText = packed.copyOfRange(1 + ivSize, packed.size)
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, masterKey, GCMParameterSpec(128, iv))
-            String(cipher.doFinal(cipherText), Charsets.UTF_8)
-        } catch (t: Throwable) {
-            // 密钥失效（如系统还原）时丢弃旧密文
-            Log.w("SecureStorage", "decrypt failed for $key, dropping value", t)
-            prefs.edit().remove(key).apply()
-            null
+    @Synchronized fun getDecrypted(key: String): String? {
+        val target = file(key)
+        val legacy = prefs.getString(key, null)
+        if (!exists(target) && legacy == null) return null
+        val result = try {
+            if (exists(target)) SecretEnvelope.open(key, target.readFully(), masterKey)
+            else SecretEnvelope.openLegacy(Base64.decode(legacy, Base64.NO_WRAP), masterKey)
+        } catch (_: Exception) {
+            // Preserve ciphertext for recovery; never log plaintext, packed data or exception bodies.
+            Log.w("SecureStorage", "Sensitive data could not be opened; authentication may be required")
+            return null
         }
+        // Delete the old copy only after a successful atomic, durable write.
+        if (!exists(target)) putEncrypted(key, result)
+        else if (legacy != null) check(prefs.edit().remove(key).commit())
+        return result
     }
 
     fun putPlain(key: String, value: String) = prefs.edit().putString(key, value).apply()
@@ -85,6 +91,5 @@ class SecureStorage @Inject constructor(
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "novel_ai_master_key"
-        private const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }

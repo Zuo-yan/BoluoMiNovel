@@ -19,9 +19,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -32,21 +34,35 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SfScreen(onOpenBook: (String) -> Unit, onOpenCatalog: (String) -> Unit, onOpenFanqie: () -> Unit, viewModel: SfViewModel = hiltViewModel()) {
+fun SfScreen(
+    onOpenBook: (String) -> Unit,
+    onOpenCatalog: (String) -> Unit,
+    onOpenFanqie: () -> Unit,
+    onOpenBrowse: () -> Unit,
+    viewModel: SfViewModel = hiltViewModel()
+) {
     LaunchedEffect(viewModel) { viewModel.restoreSession() }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val account by viewModel.account.collectAsStateWithLifecycle()
+    val safety by viewModel.safety.collectAsStateWithLifecycle()
+    val wealth by viewModel.wealth.collectAsStateWithLifecycle()
+    val signMsg by viewModel.signMessage.collectAsStateWithLifecycle()
     val locals by viewModel.localBooks.collectAsStateWithLifecycle()
     val task by viewModel.task.collectAsStateWithLifecycle()
     val cache by viewModel.cacheBytes.collectAsStateWithLifecycle()
+    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
+    val rankList by viewModel.rankList.collectAsStateWithLifecycle()
+    val currentSort by viewModel.currentSort.collectAsStateWithLifecycle()
+
     var more by remember { mutableStateOf(false) }
     var login by remember { mutableStateOf(false) }
     var accountSheet by remember { mutableStateOf(false) }
-    var inputSheet by remember { mutableStateOf(false) }
+    var searchSheet by remember { mutableStateOf(false) }
     var tasks by remember { mutableStateOf(false) }
     var clearCache by remember { mutableStateOf(false) }
     var toolsBook by remember { mutableStateOf<String?>(null) }
-    var query by remember { mutableStateOf("") }
+    var searchInput by remember { mutableStateOf("") }
     LaunchedEffect(state.localBookId, state.destination) {
         val id = state.localBookId ?: return@LaunchedEffect
         when (state.destination) {
@@ -60,7 +76,7 @@ fun SfScreen(onOpenBook: (String) -> Unit, onOpenCatalog: (String) -> Unit, onOp
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 28.dp)) {
         item {
             LargeTitleHeader("菠萝包", subtitle = "好故事，接着读") {
-                IconButton({ inputSheet = true }) { Icon(Icons.Rounded.Add, "打开书号或链接") }
+                IconButton({ onOpenBrowse() }) { Icon(Icons.Rounded.Search, "分类找书") }
                 Box {
                     IconButton({ more = true }) { Icon(Icons.Rounded.MoreHoriz, "更多") }
                     DropdownMenu(more, { more = false }) {
@@ -75,14 +91,15 @@ fun SfScreen(onOpenBook: (String) -> Unit, onOpenCatalog: (String) -> Unit, onOp
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).clip(MaterialTheme.shapes.large)
                 .background(MaterialTheme.colorScheme.surfaceContainerLow).clickable { if (account == null) login = true else accountSheet = true }.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Rounded.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                SfAvatar(account?.avatar, account?.name.orEmpty(), Modifier.size(38.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(account?.name ?: "连接你的菠萝包书架", style = MaterialTheme.typography.titleSmall)
+                    Text(account?.let { it.name + (wealth?.let { w -> " (火券 ${w.fireMoney} · 代券 ${w.coupons})" } ?: "") } ?: "连接你的菠萝包书架", style = MaterialTheme.typography.titleSmall)
                     Text(if (account == null) "登录后查看收藏，阅读已购章节" else "书架已连接 · 阅读进度保存在本机", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(Icons.Rounded.ChevronRight, "账号")
             }
         }
+        if (safety.blocked) item { Box(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { SfSafetyNotice(viewModel) { login = true } } }
         if (recent != null) item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("继续阅读", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
@@ -120,7 +137,7 @@ fun SfScreen(onOpenBook: (String) -> Unit, onOpenCatalog: (String) -> Unit, onOp
                 val local = progress["sf:${book.id}"]
                 SfBookRow(book.title, book.author, local?.coverUri ?: book.cover,
                     local?.let { "读到第 ${it.currentReadingChapterIndex + 1} 章 · ${it.readingProgressPercent.toInt()}%" } ?: "尚未阅读",
-                    onRead = { if (local != null) onOpenBook(local.id) else viewModel.openRemote(book.id) },
+                    onRead = { onOpenBook(local?.id ?: "sf:${book.id}") },
                     onAction = { destination -> if (local != null) viewModel.localAction(local.id, destination) else viewModel.openRemote(book.id, destination) })
             }
             if (state.hasMore) item { TextButton({ viewModel.loadMore() }, enabled = !state.busy, modifier = Modifier.fillMaxWidth().padding(12.dp)) { Text("加载更多作品") } }
@@ -133,32 +150,174 @@ fun SfScreen(onOpenBook: (String) -> Unit, onOpenCatalog: (String) -> Unit, onOp
                 Icon(Icons.Rounded.MenuBook, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = .7f), modifier = Modifier.size(46.dp))
                 Text(if (account == null) "把喜欢的故事带进来" else "这个书架还没有作品", style = MaterialTheme.typography.titleMedium)
                 Text("也可以通过书号或链接直接打开一本书。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton({ inputSheet = true }) { Text("打开一本书") }
+                OutlinedButton({ onOpenBrowse() }) { Text("分类找书或输入书号") }
             }
         }
         if (task.chapterIds.isNotEmpty() && (task.running || task.paused || task.failures.isNotEmpty())) item {
             TextButton({ tasks = true }, modifier = Modifier.fillMaxWidth().padding(12.dp)) { Icon(Icons.Rounded.Download, null); Text("  ${task.title} · ${task.completed}/${task.chapterIds.size} · 查看下载") }
         }
     }
-    if (login) SfLoginDialog({ login = false }) { username, password -> login = false; viewModel.login(username, password) }
-    if (inputSheet) ModalBottomSheet(onDismissRequest = { inputSheet = false }) {
-        Column(Modifier.padding(horizontal = 24.dp).imePadding().padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("打开书籍", style = MaterialTheme.typography.headlineSmall)
-            Text("输入菠萝包书号或官方书籍链接。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(query, { query = it }, label = { Text("书号 / 书籍链接") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Button({ inputSheet = false; viewModel.openRemote(query) }, enabled = query.isNotBlank() && !state.busy, modifier = Modifier.fillMaxWidth()) { Text("开始阅读") }
+    if (login) SfLoginDialog({ login = false }, safety) { username, password -> login = false; viewModel.login(username, password) }
+    if (searchSheet) ModalBottomSheet(onDismissRequest = { searchSheet = false }) {
+        LaunchedEffect(Unit) {
+            if (rankList.isEmpty() && !isSearching) {
+                viewModel.loadRank("all")
+            }
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).imePadding().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("搜书与榜单", style = MaterialTheme.typography.headlineSmall)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = searchInput,
+                    onValueChange = { searchInput = it },
+                    label = { Text("书名 / 作者 / 书号 / 链接") },
+                    singleLine = true,
+                    trailingIcon = {
+                        if (searchInput.isNotEmpty()) {
+                            IconButton({ searchInput = ""; viewModel.clearSearch() }) {
+                                Icon(Icons.Rounded.Close, "清空")
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        val trimmed = searchInput.trim()
+                        val extracted = com.novelai.assistant.data.fetcher.SfacgFetcher.extractBookId(trimmed)
+                        if (extracted != null) {
+                            searchSheet = false
+                            onOpenBook("sf:$extracted")
+                        } else if (trimmed.isNotBlank()) {
+                            viewModel.search(trimmed)
+                        }
+                    },
+                    enabled = searchInput.isNotBlank() && !state.busy
+                ) {
+                    Text(if (com.novelai.assistant.data.fetcher.SfacgFetcher.extractBookId(searchInput.trim()) != null) "查看详情" else "搜索")
+                }
+            }
+
+            // 分类榜单切换标签
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("all" to "畅销榜", "month" to "人气榜", "week" to "飙升榜", "latest" to "最新更新").forEach { (sortKey, label) ->
+                    FilterChip(
+                        selected = currentSort == sortKey && !isSearching,
+                        onClick = {
+                            searchInput = ""
+                            viewModel.clearSearch()
+                            viewModel.loadRank(sortKey)
+                        },
+                        label = { Text(label) }
+                    )
+                }
+            }
+
+            if (state.busy) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+
+            // 搜索结果或榜单结果展示
+            val displayList = if (isSearching) searchResults else rankList
+            if (displayList.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(displayList, key = { it.id }) { item ->
+                        SfSearchResultRow(item) {
+                            searchSheet = false
+                            onOpenBook("sf:${item.id}")
+                        }
+                    }
+                }
+            } else if (!state.busy) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (isSearching) "未找到匹配书籍" else "正在获取榜单作品...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
     if (accountSheet) ModalBottomSheet(onDismissRequest = { accountSheet = false }) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("账号与缓存", style = MaterialTheme.typography.headlineSmall)
-            Text(account?.let { "已登录：${it.name}" } ?: "尚未登录菠萝包")
+            Text("账号与资产", style = MaterialTheme.typography.headlineSmall)
+            Text("请求保护：全局串行；普通请求至少间隔 2 秒，正文请求后至少等待 4 秒；每 30 分钟最多请求 50 章。", style = MaterialTheme.typography.bodySmall)
+            SfSafetyNotice(viewModel) { accountSheet = false; login = true }
+            if (account != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                SfAvatar(account?.avatar, account?.name.orEmpty(), Modifier.size(42.dp))
+                                Column {
+                                    Text(account?.name.orEmpty(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text("VIP ${wealth?.vipLevel ?: account?.vipLevel ?: 0}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("火券", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${wealth?.fireMoney ?: 0}", style = MaterialTheme.typography.titleSmall)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("代金券", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${wealth?.coupons ?: 0}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("月票", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${wealth?.tickets ?: 0}", style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    }
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "每日签到领代券请在官方 App 进行，资产实时同步",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = { viewModel.refreshWealth() },
+                            enabled = !state.busy,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("刷新资产", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            } else {
+                Text("尚未登录菠萝包账号")
+            }
+
             Text("正文缓存 ${"%.2f".format(cache / 1048576.0)} MB", style = MaterialTheme.typography.titleMedium)
             Text("清理自动缓存会保留主动下载的正文、书籍和阅读进度。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton({ clearCache = true }, enabled = cache > 0, modifier = Modifier.fillMaxWidth()) { Text("清理已读缓存") }
             if (account != null) TextButton({ viewModel.logout(); accountSheet = false }) { Text("退出菠萝包账号") }
             else Button({ accountSheet = false; login = true }) { Text("登录菠萝包") }
-            Text("登录会话在本机加密保存，不保存密码。退出后保留本地正文和进度。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("会话在本机加密并排除备份，不保存密码。退出仅清除本机登录，保留正文和进度；如怀疑会话泄露，请在官方端处理账号安全。限速不能保证避免平台限制。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if (tasks) ModalBottomSheet(onDismissRequest = { tasks = false }) {
@@ -239,5 +398,88 @@ fun SfCatalogScreen(bookId: String, onBack: () -> Unit, onRead: (Int) -> Unit, v
             if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             items(chapters, key = { it.id }) { ch -> ListItem(headlineContent = { Text("${ch.chapterIndex + 1}. ${ch.title}") }, supportingContent = { Text(when { ch.downloaded -> "已下载"; ch.content.isNotBlank() -> "已缓存"; ch.isPaid -> "VIP · 读取时检查已购权限"; else -> "免费" }) }, modifier = Modifier.clickable { onRead(ch.chapterIndex) }) }
         }
+    }
+}
+
+@Composable
+private fun SfSearchResultRow(
+    item: com.novelai.assistant.data.sf.SfSearchResult,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SfCover(item.title, item.cover, Modifier.width(52.dp).height(72.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (item.author.isNotBlank()) {
+                        Text(item.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (item.markCount > 0L) {
+                        val mk = if (item.markCount >= 10000) "%.1f万".format(item.markCount / 10000.0) else "${item.markCount}"
+                        Text("$mk 收藏", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                if (item.tags.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        item.tags.take(3).forEach { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                            ) {
+                                Text(tag, Modifier.padding(horizontal = 4.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                } else if (item.intro.isNotBlank()) {
+                    Text(item.intro.replace("\n", " ").trim(), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Icon(Icons.Rounded.ChevronRight, "开始阅读", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+fun SfAvatar(avatarUrl: String?, name: String, modifier: Modifier = Modifier.size(36.dp)) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(null, avatarUrl) {
+        value = null
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                if (avatarUrl.isNullOrBlank()) return@runCatching null
+                val file = if (avatarUrl.startsWith("http://") || avatarUrl.startsWith("https://")) {
+                    val cache = java.io.File(context.cacheDir, "sf-avatars").apply { mkdirs() }
+                    val hash = java.security.MessageDigest.getInstance("SHA-256").digest(avatarUrl.toByteArray()).joinToString("") { "%02x".format(it) }
+                    java.io.File(cache, hash).also { target ->
+                        if (!target.exists()) {
+                            val conn = java.net.URL(avatarUrl.replaceFirst("http://", "https://")).openConnection().apply { connectTimeout = 8000; readTimeout = 8000 }
+                            val bytes = conn.getInputStream().use { it.readBytes() }
+                            target.writeBytes(bytes)
+                        }
+                    }
+                } else java.io.File(avatarUrl)
+                BitmapFactory.decodeFile(file.path)
+            }.getOrNull()
+        }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap!!.asImageBitmap(),
+            contentDescription = name,
+            modifier = modifier.clip(androidx.compose.foundation.shape.CircleShape),
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Icon(Icons.Rounded.AccountCircle, name, tint = MaterialTheme.colorScheme.primary, modifier = modifier)
     }
 }

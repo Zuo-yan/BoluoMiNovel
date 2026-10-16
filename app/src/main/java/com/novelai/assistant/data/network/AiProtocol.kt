@@ -54,7 +54,10 @@ object AiProtocol {
                 val modern = config.chatTokenField == "max_completion_tokens" ||
                     (config.chatTokenField == "auto" && URI(config.baseUrl).host == "api.openai.com")
                 put(if (modern) "max_completion_tokens" else "max_tokens", maxTokens)
-                putJsonObject("stream_options") { put("include_usage", true) }
+                val isOfficialOpenAi = runCatching { URI(config.baseUrl).host == "api.openai.com" }.getOrDefault(false)
+                if (isOfficialOpenAi) {
+                    putJsonObject("stream_options") { put("include_usage", true) }
+                }
                 if (config.temperatureEnabled) put("temperature", temperature)
             }
             ProviderKind.OPENAI_RESPONSES -> {

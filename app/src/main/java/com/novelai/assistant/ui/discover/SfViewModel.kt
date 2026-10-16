@@ -28,12 +28,51 @@ class SfViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     val account = session.account
+    val wealth = session.wealth
+    val safety = session.safety
+    fun acknowledgeCooldown() = action { session.acknowledgeCooldown() }
     val localBooks = db.bookDao().observeAll().map { list -> list.filter { it.sourceType == BookSourceType.BOLUOBAO } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val task = downloads.task
     val cacheBytes = library.cacheBytes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
     private val _state = MutableStateFlow(SfBrowserState())
     val state = _state.asStateFlow()
+
+    // 搜索与榜单发现
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery = _searchQuery.asStateFlow()
+    private val _searchResults = MutableStateFlow<List<SfSearchResult>>(emptyList())
+    val searchResults = _searchResults.asStateFlow()
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching = _isSearching.asStateFlow()
+    private val _rankList = MutableStateFlow<List<SfSearchResult>>(emptyList())
+    val rankList = _rankList.asStateFlow()
+    private val _currentSort = MutableStateFlow("all")
+    val currentSort = _currentSort.asStateFlow()
+    private val _signMessage = MutableStateFlow<String?>(null)
+    val signMessage = _signMessage.asStateFlow()
+
+    // 书籍详情状态
+    private val _detailBook = MutableStateFlow<SfBookDetail?>(null)
+    val detailBook = _detailBook.asStateFlow()
+    private val _isDetailLoading = MutableStateFlow(false)
+    val isDetailLoading = _isDetailLoading.asStateFlow()
+
+    // 官方动态系统标签列表（从接口 novels/0/sysTags 实时抓取，全量69个）
+    val officialTags = MutableStateFlow<List<SfSysTag>>(emptyList())
+    val cloudShelfMsg = MutableStateFlow<String?>(null)
+    fun clearCloudShelfMsg() { cloudShelfMsg.value = null }
+
+    // 评论状态
+    val comments = MutableStateFlow<List<SfComment>>(emptyList())
+    val isCommentsLoading = MutableStateFlow(false)
+
+    // 分页加载状态
+    val hasMoreBrowse = MutableStateFlow(true)
+    val isBrowseLoadingMore = MutableStateFlow(false)
+    private var browsePage = 1
+    private var currentMultiTagIds = emptyList<Int>()
+
     private val selectedBook = MutableStateFlow<String?>(null)
     @OptIn(ExperimentalCoroutinesApi::class)
     val book = selectedBook.flatMapLatest { id -> if (id == null) flowOf(null) else db.bookDao().observeById(id) }
@@ -65,14 +104,195 @@ class SfViewModel @Inject constructor(
     fun login(username: String, password: String) = action {
         session.login(username, password)
         refreshShelvesInternal()
+        runCatching { session.refreshWealth() }
     }
     fun logout() {
         operation?.cancel()
         downloads.pause()
         _state.value = SfBrowserState()
+        _signMessage.value = null
         viewModelScope.launch { session.logout() }
     }
-    fun refreshShelves() = action { session.validate(); refreshShelvesInternal() }
+    fun refreshShelves() = action {
+        session.validate()
+        refreshShelvesInternal()
+        runCatching { session.refreshWealth() }
+    }
+
+    fun search(query: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            _isSearching.value = false
+            return
+        }
+        _isSearching.value = true
+        action {
+            val results = session.search(query)
+            _searchResults.value = results
+        }
+    }
+
+    fun clearSearch() {
+        _searchQuery.value = ""
+        _searchResults.value = emptyList()
+        _isSearching.value = false
+    }
+
+    fun loadRank(sort: String = _currentSort.value) {
+        _currentSort.value = sort
+        currentMultiTagIds = emptyList()
+        browsePage = 1
+        hasMoreBrowse.value = true
+        action {
+            val list = session.browseRank(sort, 1)
+            _rankList.value = list
+        }
+    }
+
+    fun fetchOfficialTags() {
+        if (officialTags.value.isNotEmpty()) return
+        action {
+            val list = session.fetchOfficialTags()
+            officialTags.value = list
+        }
+    }
+
+    fun loadTagNovels(sysTagId: Int) {
+        currentMultiTagIds = listOf(sysTagId)
+        browsePage = 1
+        hasMoreBrowse.value = true
+        action {
+            val list = session.browseByTag(sysTagId, 1)
+            _rankList.value = list
+        }
+    }
+
+    fun loadMultiTagNovels(sysTagIds: List<Int>) {
+        currentMultiTagIds = sysTagIds
+        browsePage = 1
+        hasMoreBrowse.value = true
+        if (sysTagIds.isEmpty()) {
+            loadRank(currentSort.value)
+            return
+        }
+        val idToName = officialTags.value.associate { it.id to it.name }
+        val names = sysTagIds.mapNotNull { idToName[it] }
+        if (names.isNotEmpty()) {
+            filterByTags(names)
+        } else {
+            action {
+                val list = session.browseByMultiTags(sysTagIds, 1)
+                _rankList.value = list
+            }
+        }
+    }
+
+    fun filterByTags(tagNames: List<String>) {
+        browsePage = 1
+        hasMoreBrowse.value = true
+        if (tagNames.isEmpty()) {
+            clearSearch()
+            loadRank(currentSort.value)
+            return
+        }
+        val query = tagNames.joinToString(" ")
+        _searchQuery.value = query
+        _isSearching.value = true
+        action {
+            val results = session.search(query, 1)
+            _searchResults.value = results
+            if (results.size < 20) {
+                hasMoreBrowse.value = false
+            }
+        }
+    }
+
+    fun addToCloudShelf(novelId: String) {
+        viewModelScope.launch {
+            try {
+                val res = session.addToCloudShelf(novelId)
+                cloudShelfMsg.value = res.message
+            } catch (e: Exception) {
+                cloudShelfMsg.value = e.message ?: "加入云端书架失败"
+            }
+        }
+    }
+
+    fun loadComments(novelId: String) {
+        val remoteId = novelId.removePrefix("sf:")
+        if (!remoteId.matches(Regex("\\d+"))) {
+            comments.value = emptyList()
+            return
+        }
+        isCommentsLoading.value = true
+        viewModelScope.launch {
+            try {
+                val list = session.novelComments(remoteId, 1)
+                comments.value = list
+            } catch (_: Exception) {
+                comments.value = emptyList()
+            } finally {
+                isCommentsLoading.value = false
+            }
+        }
+    }
+
+    fun loadMoreBrowse() {
+        if (isBrowseLoadingMore.value || !hasMoreBrowse.value || state.value.busy) return
+        val nextPage = browsePage + 1
+        viewModelScope.launch {
+            isBrowseLoadingMore.value = true
+            try {
+                val newItems = when {
+                    isSearching.value -> session.search(_searchQuery.value, nextPage)
+                    currentMultiTagIds.isNotEmpty() -> session.browseByMultiTags(currentMultiTagIds, nextPage)
+                    else -> session.browseRank(currentSort.value, nextPage)
+                }
+                if (newItems.isEmpty()) {
+                    hasMoreBrowse.value = false
+                } else {
+                    browsePage = nextPage
+                    if (isSearching.value) {
+                        _searchResults.update { (it + newItems).distinctBy { item -> item.id } }
+                    } else {
+                        _rankList.update { (it + newItems).distinctBy { item -> item.id } }
+                    }
+                    if (newItems.size < 20) {
+                        hasMoreBrowse.value = false
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                isBrowseLoadingMore.value = false
+            }
+        }
+    }
+
+    fun toggleBookshelf(bookId: String) {
+        viewModelScope.launch {
+            val current = db.bookDao().getById(bookId) ?: return@launch
+            val newStatus = !current.inBookshelf
+            db.bookDao().updateInBookshelf(bookId, newStatus)
+        }
+    }
+
+    fun forceBypassSafety() = viewModelScope.launch {
+        session.forceBypassSafety()
+    }
+
+    fun sign() = action {
+        val res = session.sign()
+        _signMessage.value = res.message
+    }
+
+    fun clearSignMessage() {
+        _signMessage.value = null
+    }
+
+    fun refreshWealth() = action {
+        session.refreshWealth()
+    }
     private suspend fun refreshShelvesInternal() {
         val shelves = session.shelves()
         _state.update { it.copy(shelves = shelves, books = emptyList(), selectedShelf = null, page = 0, hasMore = false) }
@@ -95,6 +315,56 @@ class SfViewModel @Inject constructor(
         _state.update { it.copy(selectedShelf = id, page = page, books = merged,
             hasMore = books.size >= 30 && (page == 1 || merged.size > previous.size)) }
     }
+    fun loadBookDetail(rawId: String) {
+        _isDetailLoading.value = true
+        _detailBook.value = null
+        selectLocal(rawId)
+        viewModelScope.launch {
+            try {
+                val isSf = rawId.startsWith("sf:") || rawId.matches(Regex("\\d+"))
+                if (isSf) {
+                    val remoteId = rawId.removePrefix("sf:")
+                    // 打开或同步书籍目录元数据到本地 Room
+                    val localId = db.bookDao().getById("sf:$remoteId")?.takeIf { it.totalChapters > 0 }?.id
+                        ?: library.openBook(remoteId)
+                    selectLocal(localId)
+                    // 拉取官方完整书籍详情（长简介、字数、分类、标签等）
+                    val detail = session.novelDetail(remoteId)
+                    val total = db.chapterDao().countByBook("sf:$remoteId")
+                    _detailBook.value = detail.copy(totalChapters = if (total > 0) total else detail.totalChapters)
+                } else {
+                    // 本地书籍（TXT / EPUB 等）
+                    selectLocal(rawId)
+                    val local = db.bookDao().getById(rawId)
+                    if (local != null) {
+                        val chapters = db.chapterDao().getByBook(rawId)
+                        val totalWords = chapters.sumOf { it.content.length.toLong() }
+                        val previewIntro = chapters.firstOrNull { it.content.isNotBlank() }?.content
+                            ?.lines()?.filter { it.isNotBlank() }?.take(4)?.joinToString("\n")
+                            ?: "本地导入书籍，可在阅读器中畅享沉浸阅读与 AI 伴读。"
+                        _detailBook.value = SfBookDetail(
+                            id = local.id,
+                            title = local.title,
+                            author = local.author.ifBlank { "本地作品" },
+                            cover = local.coverUri,
+                            intro = previewIntro,
+                            tags = listOf(local.category.ifBlank { "本地书库" }, local.sourceType.name),
+                            typeName = "本地导入",
+                            isFinish = true,
+                            charCount = totalWords,
+                            totalChapters = chapters.size,
+                            latestChapterTitle = chapters.lastOrNull()?.title.orEmpty()
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.message ?: "加载书籍详情失败") }
+            } finally {
+                _isDetailLoading.value = false
+            }
+        }
+    }
+
     fun openRemote(input: String, destination: String = "read") = action {
         val id = com.novelai.assistant.data.fetcher.SfacgFetcher.extractBookId(input) ?: error("请输入菠萝包书号或书籍链接")
         val local = db.bookDao().getById("sf:$id")?.takeIf { it.totalChapters > 0 }?.id ?: library.openBook(id)

@@ -76,13 +76,14 @@ class OpenAiCompatClient @Inject constructor(
         temperature: Float
     ): Flow<StreamEvent> = flow {
         val url = "${normalizeBaseUrl(config.baseUrl)}/chat/completions"
+        val isOfficialOpenAi = runCatching { java.net.URI(config.baseUrl).host == "api.openai.com" }.getOrDefault(false)
         val request = OpenAiChatRequest(
             model = config.selectedModel,
             messages = messages.map { OpenAiMessage(it.role, it.content) },
             stream = true,
             temperature = temperature,
             max_tokens = maxTokens,
-            stream_options = StreamOptions(include_usage = true)
+            stream_options = if (isOfficialOpenAi) StreamOptions(include_usage = true) else null
         )
         try {
             httpClient.preparePost(url) {

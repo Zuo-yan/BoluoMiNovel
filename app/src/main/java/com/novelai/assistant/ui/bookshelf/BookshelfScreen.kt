@@ -279,24 +279,26 @@ fun BookshelfScreen(
                 SimpleAction(Icons.Rounded.DriveFileMove, "移动到书单") {
                     moveBook = book; actionBook = null
                 }
-                SimpleAction(
-                    icon = Icons.Rounded.Image,
-                    label = if (book.coverUri.isNullOrBlank()) "设置封面" else "更换封面"
-                ) {
-                    val bid = book.id
-                    actionBook = null
-                    pendingCoverBookId = bid
-                    coverPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                }
-                if (!book.coverUri.isNullOrBlank()) {
+                if (book.sourceType != com.novelai.assistant.data.db.BookSourceType.BOLUOBAO) {
                     SimpleAction(
-                        icon = Icons.Rounded.HideImage,
-                        label = "恢复默认封面"
+                        icon = Icons.Rounded.Image,
+                        label = if (book.coverUri.isNullOrBlank()) "设置封面" else "更换封面"
                     ) {
-                        viewModel.clearBookCover(book.id)
+                        val bid = book.id
                         actionBook = null
+                        pendingCoverBookId = bid
+                        coverPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }
+                    if (!book.coverUri.isNullOrBlank()) {
+                        SimpleAction(
+                            icon = Icons.Rounded.HideImage,
+                            label = "恢复默认封面"
+                        ) {
+                            viewModel.clearBookCover(book.id)
+                            actionBook = null
+                        }
                     }
                 }
                 SimpleAction(Icons.Rounded.Delete, "删除本书", tint = MaterialTheme.colorScheme.error) {

@@ -26,7 +26,8 @@ data class BookEntity(
     val readingProgressPercent: Float = 0f,
     val category: String = "默认",
     val createdAt: Long = System.currentTimeMillis(),
-    val lastReadAt: Long = 0L
+    val lastReadAt: Long = 0L,
+    @androidx.room.ColumnInfo(defaultValue = "1") val inBookshelf: Boolean = true
 )
 
 @Entity(tableName = "chapters")

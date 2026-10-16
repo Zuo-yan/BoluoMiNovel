@@ -47,15 +47,18 @@ class SfIntegrationTest {
         catch (e: SfException) { assertEquals(SfFailureKind.INVALID, e.kind) }
     }
 
-    @Test fun signatureRetriesAreBoundedAndRiskStopsImmediately() = runBlocking {
+    @Test fun signatureRejectionStopsImmediately() = runBlocking {
         var calls = 0
-        val api = SfApi(SfTransport { _, _, _ ->
-            calls++
-            if (calls == 1) SfResponse(417, """{"status":{"httpCode":417}}""")
-            else SfResponse(422, """{"status":{"httpCode":422,"errorCode":1148}}""")
-        }, device)
+        val api = SfApi(SfTransport { _, _, _ -> calls++; SfResponse(417, """{"status":{"httpCode":417}}""") }, device)
+        try { api.inspect("test"); fail() } catch (e: SfException) { assertEquals(SfFailureKind.SIGNATURE, e.kind) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun riskStopsImmediately() = runBlocking {
+        var calls = 0
+        val api = SfApi(SfTransport { _, _, _ -> calls++; SfResponse(422, """{"status":{"httpCode":422,"errorCode":1148}}""") }, device)
         try { api.inspect("test"); fail() } catch (e: SfException) { assertEquals(SfFailureKind.RISK, e.kind) }
-        assertEquals(2, calls)
+        assertEquals(1, calls)
     }
 
     @Test fun invalidLoginDoesNotExposeServerBodyOrSubmittedPassword() = runBlocking {
@@ -69,16 +72,9 @@ class SfIntegrationTest {
         try { api.inspect("test"); fail() } catch (_: CancellationException) { }
     }
 
-    @Test fun repeatedSignatureRejectionEventuallyStops() = runBlocking {
-        var calls = 0
-        val api = SfApi(SfTransport { _, _, _ -> calls++; SfResponse(417, """{"status":{"httpCode":417}}""") }, device)
-        try { api.inspect("test"); fail() } catch (e: SfException) { assertEquals(SfFailureKind.SIGNATURE, e.kind) }
-        assertEquals(8, calls)
-    }
-
     @Test fun deviceRejectionIsNotMisreportedAsExpiredLogin() = runBlocking {
         val api = SfApi(SfTransport { _, _, _ -> SfResponse(401, """{"status":{"httpCode":401,"errorCode":507}}""") }, device)
-        try { api.inspect("test"); fail() } catch (e: SfException) { assertEquals(SfFailureKind.INVALID, e.kind) }
+        try { api.inspect("test"); fail() } catch (e: SfException) { assertEquals(SfFailureKind.CLIENT, e.kind) }
     }
 
     @Test fun freeChaptersNeverSendAccountCookieAndPaidChaptersRequireLogin() = runBlocking {
@@ -162,5 +158,96 @@ class SfIntegrationTest {
         assertEquals("123", SfacgFetcher.extractBookId("https://book.sfacg.com/Novel/123/"))
         assertNull(SfacgFetcher.extractBookId("https://evil.example/Novel/123/"))
         assertNull(SfacgFetcher.extractBookId("http://book.sfacg.com/Novel/123/"))
+    }
+
+    @Test fun searchAndRankParsingWorkAsExpected() = runBlocking {
+        val api = SfApi(SfTransport { path, _, _ ->
+            if (path.startsWith("search")) {
+                ok("""{"novels":[{"novelId":101,"novelName":"异界魔王","authorName":"作者A","point":8.5,"markCount":1000,"expand":{"intro":"简介","tags":[{"tagName":"奇幻"}]}}]}""")
+            } else {
+                ok("""{"novels":[{"novelId":202,"novelName":"畅销轻小说","authorName":"作者B","point":9.0,"markCount":5000,"expand":{"bigNovelCover":"http://cover.jpg"}}]}""")
+            }
+        }, device)
+        val searchResults = api.search("魔王")
+        assertEquals(1, searchResults.size)
+        assertEquals("101", searchResults[0].id)
+        assertEquals("异界魔王", searchResults[0].title)
+        assertEquals(listOf("奇幻"), searchResults[0].tags)
+        assertEquals(8.5f, searchResults[0].point)
+        assertEquals(1000L, searchResults[0].markCount)
+
+        val rankResults = api.browseRank("all")
+        assertEquals(1, rankResults.size)
+        assertEquals("202", rankResults[0].id)
+        assertEquals("畅销轻小说", rankResults[0].title)
+        assertEquals("http://cover.jpg", rankResults[0].cover)
+        assertEquals(9.0f, rankResults[0].point)
+        assertEquals(5000L, rankResults[0].markCount)
+    }
+
+    @Test fun wealthAndSignWorkAsExpected() = runBlocking {
+        val api = SfApi(SfTransport { path, _, _ ->
+            if (path.startsWith("user/money")) {
+                ok("""{"fireMoney":500,"coupons":120,"vipLevel":2,"ticket":3}""")
+            } else {
+                ok("""{"msg":"签到成功，已领取代券"}""")
+            }
+        }, device)
+        val wealth = api.wealth("test-cookie")
+        assertEquals(500, wealth.fireMoney)
+        assertEquals(120, wealth.coupons)
+        assertEquals(2, wealth.vipLevel)
+        assertEquals(3, wealth.tickets)
+
+        val signRes = api.sign("test-cookie")
+        assertTrue(signRes.success)
+        assertTrue(signRes.message.contains("签到成功"))
+    }
+
+    @Test fun novelDetailAndRemainFieldsWorkAsExpected() = runBlocking {
+        val api = SfApi(SfTransport { path, _, _ ->
+            if (path.startsWith("novels/999")) {
+                ok("""{"novelId":999,"novelName":"血姬与骑士","authorName":"蒸汽姬一只","charCount":1580000,"isFinish":false,"expand":{"bigNovelCover":"https://cover.jpg","intro":"完整精彩故事简介","sysTags":[{"tagName":"重生"},{"tagName":"变身"}],"tags":[{"tagName":"断章苟"}],"fav":138781,"ticket":10}}""")
+            } else {
+                ok("""{"fireMoneyRemain":880,"couponsRemain":360,"ticketRemain":5}""")
+            }
+        }, device)
+
+        val detail = api.novelDetail("999")
+        assertEquals("999", detail.id)
+        assertEquals("血姬与骑士", detail.title)
+        assertEquals("蒸汽姬一只", detail.author)
+        assertEquals(1580000L, detail.charCount)
+        assertFalse(detail.isFinish)
+        assertEquals("完整精彩故事简介", detail.intro)
+        assertEquals(listOf("重生", "变身"), detail.tags)
+        assertEquals(138781L, detail.favCount)
+        assertEquals(10, detail.ticketCount)
+
+        val wealth = api.wealth("test-cookie")
+        assertEquals(880, wealth.fireMoney)
+        assertEquals(360, wealth.coupons)
+        assertEquals(5, wealth.tickets)
+    }
+
+    @Test fun novelCommentsAndAddToPocketWorkAsExpected() = runBlocking {
+        val api = SfApi(SfTransport { path, _, body ->
+            if (path.contains("Cmts")) {
+                ok("""{"cmts":[{"commentId":888,"displayName":"读者小明","content":"真好看！","createTime":"2026-10-16T12:00:00.000","vipLevel":1}]}""")
+            } else if (path.startsWith("pockets")) {
+                assertTrue(body!!.contains("155640"))
+                ok("""{"msg":"已成功加入菠萝包云端书架"}""")
+            } else {
+                ok("""{}""")
+            }
+        }, device)
+
+        val comments = api.novelComments("155640")
+        assertEquals(1, comments.size)
+        assertEquals("读者小明", comments[0].displayName)
+        assertEquals("真好看！", comments[0].content)
+
+        val shelfRes = api.addToCloudShelf("test-cookie", "155640")
+        assertTrue(shelfRes.success)
     }
 }

@@ -25,10 +25,16 @@ import com.novelai.assistant.ui.components.LargeTitleHeader
 import com.novelai.assistant.ui.components.SectionCard
 
 @Composable
-internal fun SfLoginDialog(onDismiss: () -> Unit, onLogin: (String, String) -> Unit) {
+internal fun SfLoginDialog(onDismiss: () -> Unit, protection: SfSafetyState = SfSafetyState(), onLogin: (String, String) -> Unit) {
+    com.novelai.assistant.ui.components.SensitiveScreen()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    val clock by produceState(System.currentTimeMillis(), protection.until) {
+        while (true) { value = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) }
+    }
+    val canLogin = !protection.blocked || (protection.requiresLogin && clock >= protection.until)
     AlertDialog(onDismissRequest = { password = ""; onDismiss() }, title = { Text("登录菠萝包") },
+        properties = androidx.compose.ui.window.DialogProperties(securePolicy = androidx.compose.ui.window.SecureFlagPolicy.SecureOn),
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("使用菠萝包账号或手机号与密码登录。若账号需要验证码或安全验证，请先在官方 App 完成。")
@@ -36,9 +42,11 @@ internal fun SfLoginDialog(onDismiss: () -> Unit, onLogin: (String, String) -> U
                 OutlinedTextField(password, { password = it }, label = { Text("密码") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth())
                 Text("密码仅用于本次登录请求，不会保存。", style = MaterialTheme.typography.bodySmall)
+                Text("通过非官方协议接入，平台可能要求验证或限制账号；本应用不能承诺避免封号。", style = MaterialTheme.typography.bodySmall)
+                if (!canLogin) Text("请求保护仍在生效，请返回处理暂停原因并等待冷却结束。", color = MaterialTheme.colorScheme.error)
             }
         },
-        confirmButton = { TextButton(enabled = username.isNotBlank() && password.isNotBlank(), onClick = {
+        confirmButton = { TextButton(enabled = canLogin && username.isNotBlank() && password.isNotBlank(), onClick = {
             val value = password; password = ""; onLogin(username, value)
         }) { Text("登录") } },
         dismissButton = { TextButton({ password = ""; onDismiss() }) { Text("取消") } })
@@ -51,6 +59,7 @@ fun SfTaskCard(viewModel: SfViewModel) {
     var expanded by remember { mutableStateOf(false) }
     SectionCard(title = "下载任务 · ${task.title}") {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SfSafetyNotice(viewModel)
             Text("${task.message} · ${task.completed}/${task.chapterIds.size}")
             if (task.running) LinearProgressIndicator(progress = { (task.completed + task.failures.size).toFloat() / task.chapterIds.size }, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

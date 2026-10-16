@@ -39,7 +39,7 @@ class SfLibraryRepository @Inject constructor(
             db.bookDao().insert(previous?.copy(title = catalog.title, author = catalog.author,
                 coverUri = previous.coverUri ?: catalog.cover, totalChapters = count)
                 ?: BookEntity(bookId, catalog.title, catalog.author, catalog.cover,
-                    "https://book.sfacg.com/Novel/$remoteId/", BookSourceType.BOLUOBAO, count))
+                    "https://book.sfacg.com/Novel/$remoteId/", BookSourceType.BOLUOBAO, count, inBookshelf = false))
         }
         return bookId
     }

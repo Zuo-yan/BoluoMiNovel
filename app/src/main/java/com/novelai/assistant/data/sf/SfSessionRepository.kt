@@ -25,6 +25,11 @@ class SfSessionRepository @Inject constructor(
     private var cookie = storage.getDecrypted("sf_app_session").orEmpty()
     private val _account = MutableStateFlow<SfAccount?>(null)
     val account = _account.asStateFlow()
+    private val _wealth = MutableStateFlow<SfWealth?>(null)
+    val wealth = _wealth.asStateFlow()
+    val safety = api.guard.state
+    suspend fun acknowledgeCooldown() = api.guard.acknowledgeCooldown()
+    suspend fun forceBypassSafety() = api.guard.forceBypass()
     val hasSession get() = cookie.isNotBlank()
     private val decoder by lazy {
         context.assets.open("sf-map.json").bufferedReader().use { reader ->
@@ -40,12 +45,15 @@ class SfSessionRepository @Inject constructor(
         }
         cookie = newCookie
         _account.value = account
+        loadWealth()
     }
 
     suspend fun validate() = lock.withLock {
         if (cookie.isBlank()) return@withLock
-        try { _account.value = api.inspect(cookie) }
-        catch (e: SfException) {
+        try {
+            _account.value = api.inspect(cookie)
+            loadWealth()
+        } catch (e: SfException) {
             if (e.kind == SfFailureKind.AUTH) clear()
             throw e
         }
@@ -53,12 +61,45 @@ class SfSessionRepository @Inject constructor(
 
     suspend fun logout() = lock.withLock { clear() }
     private fun clear() {
+        api.guard.invalidatePending()
         cookie = ""
         api.clearShelfCache()
         _account.value = null
+        _wealth.value = null
         storage.putEncrypted("sf_app_session", "")
         storage.putEncrypted("sfacg_cookie", "")
     }
+
+    suspend fun refreshWealth() = lock.withLock {
+        if (cookie.isBlank()) return@withLock
+        loadWealth()
+    }
+
+    private suspend fun loadWealth() {
+        try { _wealth.value = api.wealth(cookie) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: SfException) {
+            if (e.kind == SfFailureKind.AUTH) clear()
+            if (e.kind != SfFailureKind.INVALID) throw e
+        }
+    }
+
+    suspend fun sign(): SfSignResult {
+        val result = api.sign(cookie)
+        if (result.success) {
+            refreshWealth()
+        }
+        return result
+    }
+
+    suspend fun search(keyword: String, page: Int = 1) = api.search(keyword, page)
+    suspend fun browseRank(sort: String = "hot", page: Int = 1) = api.browseRank(sort, page)
+    suspend fun novelDetail(id: String) = api.novelDetail(id)
+    suspend fun fetchOfficialTags() = api.fetchOfficialTags()
+    suspend fun browseByTag(sysTagId: Int, page: Int = 1) = api.browseByTag(sysTagId, page)
+    suspend fun browseByMultiTags(sysTagIds: List<Int>, page: Int = 1) = api.browseByMultiTags(sysTagIds, page)
+    suspend fun addToCloudShelf(novelId: String, pocketId: String = "-1") = api.addToCloudShelf(cookie, novelId, pocketId)
+    suspend fun novelComments(novelId: String, page: Int = 1) = api.novelComments(novelId, page)
 
     suspend fun shelves() = api.shelves(cookie)
     suspend fun shelfPage(id: String, name: String, page: Int) = api.shelfPage(cookie, id, name, page)

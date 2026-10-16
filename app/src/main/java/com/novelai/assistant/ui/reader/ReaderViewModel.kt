@@ -126,9 +126,14 @@ class ReaderViewModel @Inject constructor(
         if (initialChapterIndex >= 0) {
             _chapterIndex.value = initialChapterIndex
         }
-        // 持续同步书籍与章节上下文给全局 TtsPlayer
+        // 仅当后台未在朗读其他书籍时，才自动同步书籍与章节上下文
+        fun canBindTts(): Boolean {
+            val playingBook = ttsPlayer.currentBookId.value
+            return playingBook.isBlank() || playingBook == bookId
+        }
+
         chapters.onEach { list ->
-            if (list.isNotEmpty()) {
+            if (list.isNotEmpty() && canBindTts()) {
                 val bTitle = book.value?.title ?: ""
                 ttsPlayer.bindBookContext(bookId, bTitle, list)
             }
@@ -137,7 +142,9 @@ class ReaderViewModel @Inject constructor(
         // 初始章节：书籍加载后定位到上次阅读位置
         book.onEach { b ->
             if (b != null) {
-                ttsPlayer.bindBookContext(bookId, b.title, chapters.value)
+                if (canBindTts()) {
+                    ttsPlayer.bindBookContext(bookId, b.title, chapters.value)
+                }
                 if (_chapterIndex.value == -1 && b.currentReadingChapterIndex >= 0) {
                     _chapterIndex.value = b.currentReadingChapterIndex
                 }
@@ -226,6 +233,14 @@ class ReaderViewModel @Inject constructor(
     val ttsTimerMode: StateFlow<TtsTimerMode> = ttsPlayer.timerMode
     val ttsTimerRemainingSeconds: StateFlow<Int?> = ttsPlayer.timerRemainingSeconds
 
+    val isCurrentBookSpeaking: StateFlow<Boolean> = combine(
+        ttsPlayer.currentBookId,
+        ttsPlayer.speaking,
+        ttsPlayer.paused
+    ) { currentId, speaking, paused ->
+        currentId == bookId && (speaking || paused)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     fun setTtsSpeed(speed: Float) {
         ttsPlayer.setRate(speed)
     }
@@ -237,7 +252,11 @@ class ReaderViewModel @Inject constructor(
     /** 开始/停止朗读当前章；支持指定起始段落，读毕自动连播下一章 */
     fun toggleTts(startIndex: Int = 0) {
         if (ttsPlayer.speaking.value || ttsPlayer.paused.value) {
+            val sameBook = ttsPlayer.currentBookId.value == bookId
             ttsPlayer.stop()
+            if (!sameBook) {
+                startTts(startIndex)
+            }
         } else {
             startTts(startIndex)
         }
@@ -249,6 +268,7 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun startTtsForChapter(chapter: ChapterEntity, startIndex: Int = 0) {
+        ttsPlayer.bindBookContext(bookId, book.value?.title ?: "", chapters.value)
         if (chapter.content.isBlank()) {
             val requestGeneration = ttsPlayer.playbackGeneration
             viewModelScope.launch {

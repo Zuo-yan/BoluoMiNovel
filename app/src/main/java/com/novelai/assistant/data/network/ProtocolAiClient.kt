@@ -5,10 +5,12 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.jsonObject
 
 class ProtocolAiClient(client: HttpClient, private val kind: ProviderKind, private val metadata: ModelMetadataClient) : AiChatClient {
     private val http = client.config { followRedirects = false; expectSuccess = false }
@@ -42,7 +44,20 @@ class ProtocolAiClient(client: HttpClient, private val kind: ProviderKind, priva
                 setBody(AiProtocol.body(active, messages, outputBudget, temperature).toString())
             }.execute { response ->
                 if (response.status.value !in 200..299) {
-                    emit(StreamEvent.Error("${kind.label} 返回 HTTP ${response.status.value}，请检查地址、模型、密钥权限和参数"))
+                    val code = response.status.value
+                    if (code == 400) {
+                        val rawErr = runCatching { response.bodyAsText() }.getOrDefault("")
+                        val parsedMessage = runCatching {
+                            val obj = kotlinx.serialization.json.Json.parseToJsonElement(rawErr).jsonObject
+                            obj.node("error").str("message").ifBlank { obj.str("message") }.ifBlank { obj.str("msg") }
+                        }.getOrNull()
+                        val detail = parsedMessage?.takeIf { it.isNotBlank() } ?: rawErr.take(150)
+                        val msg = if (detail.isNotBlank()) "${kind.label} (HTTP 400): $detail"
+                            else "${kind.label} 返回 HTTP 400，请检查地址、模型、密钥权限和参数"
+                        emit(StreamEvent.Error(msg))
+                    } else {
+                        emit(StreamEvent.Error("${kind.label} 返回 HTTP $code，请检查地址、模型、密钥权限和参数"))
+                    }
                     return@execute
                 }
                 val channel = response.bodyAsChannel()

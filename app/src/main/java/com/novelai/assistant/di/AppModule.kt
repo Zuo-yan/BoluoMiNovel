@@ -31,13 +31,19 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): NovelDatabase =
         Room.databaseBuilder(context, NovelDatabase::class.java, "novel_ai.db")
-            .addMigrations(com.novelai.assistant.data.db.SF_MIGRATION_1_2)
+            .addMigrations(com.novelai.assistant.data.db.SF_MIGRATION_1_2, com.novelai.assistant.data.db.SF_MIGRATION_2_3)
             .build()
 
     @Provides
     @Singleton
-    fun provideSfApi(transport: com.novelai.assistant.data.sf.KtorSfTransport): com.novelai.assistant.data.sf.SfApi {
-        return com.novelai.assistant.data.sf.SfApi(transport, com.novelai.assistant.data.sf.SfProtocol.COMPATIBLE_DEVICE)
+    fun provideSfApi(transport: com.novelai.assistant.data.sf.KtorSfTransport, storage: com.novelai.assistant.data.security.SecureStorage): com.novelai.assistant.data.sf.SfApi {
+        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        val key = "sf_request_safety_v1"
+        val saved = if (!storage.containsEncrypted(key)) com.novelai.assistant.data.sf.SfSafetyState() else runCatching {
+            json.decodeFromString<com.novelai.assistant.data.sf.SfSafetyState>(storage.getDecrypted(key) ?: error("unreadable"))
+        }.getOrDefault(com.novelai.assistant.data.sf.SfSafetyState())
+        val guard = com.novelai.assistant.data.sf.SfRequestGuard(saved, { storage.putEncrypted(key, json.encodeToString(it)) })
+        return com.novelai.assistant.data.sf.SfApi(transport, com.novelai.assistant.data.sf.SfProtocol.COMPATIBLE_DEVICE, guard)
     }
 
     @Provides fun provideBookDao(db: NovelDatabase): BookDao = db.bookDao()

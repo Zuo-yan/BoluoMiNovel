@@ -13,8 +13,13 @@ import com.novelai.assistant.ui.components.LargeTitleHeader
 import com.novelai.assistant.ui.components.SectionCard
 
 @Composable
-fun DiscoverScreen(onOpenBook: (String) -> Unit, onOpenCatalog: (String) -> Unit, onOpenFanqie: () -> Unit) {
-    SfScreen(onOpenBook, onOpenCatalog, onOpenFanqie)
+fun DiscoverScreen(
+    onOpenBook: (String) -> Unit,
+    onOpenCatalog: (String) -> Unit,
+    onOpenFanqie: () -> Unit,
+    onOpenBrowse: () -> Unit
+) {
+    SfScreen(onOpenBook, onOpenCatalog, onOpenFanqie, onOpenBrowse)
 }
 
 @Composable
