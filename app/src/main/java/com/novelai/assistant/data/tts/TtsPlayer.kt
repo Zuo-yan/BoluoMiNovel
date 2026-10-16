@@ -60,6 +60,8 @@ class TtsPlayer @Inject constructor(
     private var initOk = false
 
     private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    var playbackGeneration: Long = 0
+        private set
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val _ready = MutableStateFlow(false)
@@ -335,6 +337,7 @@ class TtsPlayer @Inject constructor(
      * 绑定书籍元数据及全书章节缓存，为前台展示与后台无感连播提供支持
      */
     fun bindBookContext(bookId: String, bookTitle: String, chapters: List<ChapterEntity>) {
+        if (_currentBookId.value != bookId) playbackGeneration++
         _currentBookId.value = bookId
         _currentBookTitle.value = bookTitle
         this.chaptersCache = chapters
@@ -351,6 +354,7 @@ class TtsPlayer @Inject constructor(
         onChapterEnd: (() -> Unit)? = null
     ) {
         if (!initOk) return
+        playbackGeneration++
         chapterEndCallback = onChapterEnd
         rawParagraphs = paragraphs
         _currentChapterIndex.value = chapterIndex
@@ -470,6 +474,7 @@ class TtsPlayer @Inject constructor(
         val nextIdx = _currentChapterIndex.value + 1
         if (list.isNotEmpty() && nextIdx in list.indices) {
             val nextChapter = list[nextIdx]
+            val requestGeneration = playbackGeneration
             val bId = _currentBookId.value
             val bTitle = _currentBookTitle.value
 
@@ -480,7 +485,11 @@ class TtsPlayer @Inject constructor(
                 }
 
                 // 拆分段落并播放
-                val paragraphs = splitParagraphs(nextChapter.content)
+                val loaded = try { bookRepository.readableChapter(nextChapter.id) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { if (playbackGeneration == requestGeneration) stop(); return@launch }
+                if (playbackGeneration != requestGeneration) return@launch
+                val paragraphs = splitParagraphs(loaded.content)
                 play(
                     paragraphs = paragraphs,
                     startIndex = 0,
@@ -514,6 +523,7 @@ class TtsPlayer @Inject constructor(
         val prevIdx = _currentChapterIndex.value - 1
         if (list.isNotEmpty() && prevIdx in list.indices) {
             val prevChapter = list[prevIdx]
+            val requestGeneration = playbackGeneration
             val bId = _currentBookId.value
             val bTitle = _currentBookTitle.value
 
@@ -521,7 +531,11 @@ class TtsPlayer @Inject constructor(
                 runCatching {
                     bookRepository.saveProgress(bId, prevIdx, list.size)
                 }
-                val paragraphs = splitParagraphs(prevChapter.content)
+                val loaded = try { bookRepository.readableChapter(prevChapter.id) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { if (playbackGeneration == requestGeneration) stop(); return@launch }
+                if (playbackGeneration != requestGeneration) return@launch
+                val paragraphs = splitParagraphs(loaded.content)
                 play(
                     paragraphs = paragraphs,
                     startIndex = 0,
@@ -551,6 +565,7 @@ class TtsPlayer @Inject constructor(
 
     /** 暂停朗读 */
     fun pause() {
+        playbackGeneration++
         if (!_speaking.value && !_paused.value) return
         _paused.value = true
         _speaking.value = false
@@ -572,6 +587,7 @@ class TtsPlayer @Inject constructor(
 
     /** 停止朗读并清理资源 */
     fun stop() {
+        playbackGeneration++
         _paused.value = false
         _speaking.value = false
         queue = emptyList()

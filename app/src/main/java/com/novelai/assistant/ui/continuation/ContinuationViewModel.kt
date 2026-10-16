@@ -153,6 +153,7 @@ class ContinuationViewModel @Inject constructor(
     fun generate() {
         val book = _book.value ?: run { _error.value = "书籍未加载"; return }
         val parent = _parentChapter.value ?: run { _error.value = "章节未加载"; return }
+        if (parent.content.isBlank()) { _error.value = "本章尚无正文，请先在阅读器打开或下载后再续写"; return }
         val active = aiConfigRepository.resolveActive(TaskScene.CONTINUATION)
             ?: run { _error.value = "尚未配置「续写场景」模型，请到设置页配置"; return }
         val (provider, model) = active
@@ -168,7 +169,7 @@ class ContinuationViewModel @Inject constructor(
             val builder = StringBuilder()
             val craft = _useWorkshopCraft.value
             try {
-                val lineage = bookRepository.getChapterLineage(bookId, parent.id)
+                val lineage = bookRepository.getChapterLineage(bookId, parent.id).filter { it.content.isNotBlank() }
                 val messages = if (isBranchMode) {
                     PromptBuilder.branchMessages(book, parent, instructionText.ifBlank { "自由推演一个有趣的平行分支" }, lineage, craft)
                 } else {
@@ -189,8 +190,8 @@ class ContinuationViewModel @Inject constructor(
                                 _streamingText.value = builder.toString()
                             }
                             is StreamEvent.Usage -> {
-                                promptTokens += event.promptTokens
-                                completionTokens += event.completionTokens
+                                promptTokens = maxOf(promptTokens, event.promptTokens)
+                                completionTokens = maxOf(completionTokens, event.completionTokens)
                             }
                             is StreamEvent.Error -> _error.value = event.message
                             is StreamEvent.Done -> Unit

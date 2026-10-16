@@ -31,8 +31,14 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): NovelDatabase =
         Room.databaseBuilder(context, NovelDatabase::class.java, "novel_ai.db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(com.novelai.assistant.data.db.SF_MIGRATION_1_2)
             .build()
+
+    @Provides
+    @Singleton
+    fun provideSfApi(transport: com.novelai.assistant.data.sf.KtorSfTransport): com.novelai.assistant.data.sf.SfApi {
+        return com.novelai.assistant.data.sf.SfApi(transport, com.novelai.assistant.data.sf.SfProtocol.COMPATIBLE_DEVICE)
+    }
 
     @Provides fun provideBookDao(db: NovelDatabase): BookDao = db.bookDao()
     @Provides fun provideChapterDao(db: NovelDatabase): ChapterDao = db.chapterDao()

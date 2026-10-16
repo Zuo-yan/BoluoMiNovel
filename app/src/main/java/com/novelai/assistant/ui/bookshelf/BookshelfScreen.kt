@@ -204,7 +204,7 @@ fun BookshelfScreen(
                         EmptyState(
                             icon = Icons.Rounded.UploadFile,
                             title = if (currentCategory == "全部") "书架空空如也" else "「$currentCategory」书单为空",
-                            hint = if (currentCategory == "全部") "点击右上角导入 TXT / Markdown / EPUB\n或使用「发现」页的下载工具"
+                            hint = if (currentCategory == "全部") "点击右上角导入 TXT / Markdown / EPUB\n或在「菠萝包」页打开与下载书籍"
                             else "长按书籍可将其移动到此书单"
                         )
                         if (currentCategory != "全部") {

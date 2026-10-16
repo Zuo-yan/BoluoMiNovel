@@ -2,7 +2,7 @@ package com.novelai.assistant.data.network
 
 import kotlinx.serialization.Serializable
 
-/** 统一的流式事件模型：两种协议适配后都输出这一套 */
+/** 四种协议适配后的流式事件；Usage 表示本次请求的累计用量。 */
 sealed interface StreamEvent {
     data class Delta(val text: String) : StreamEvent
     data class Usage(val promptTokens: Long, val completionTokens: Long) : StreamEvent
@@ -16,8 +16,10 @@ data class ChatMessage(
 )
 
 enum class ProviderKind(val label: String) {
-    OPENAI_COMPATIBLE("OpenAI 兼容"),
-    ANTHROPIC("Anthropic 兼容")  // 历史数据兼容保留，运行时统一按 OpenAI 协议处理
+    OPENAI_COMPATIBLE("OpenAI Chat Completions"),
+    OPENAI_RESPONSES("OpenAI Responses"),
+    ANTHROPIC("Anthropic Messages"),
+    GOOGLE_GEMINI("Google Gemini")
 }
 
 /** SSE 行解析共通工具 */
@@ -71,5 +73,3 @@ data class OpenAiModelsResponse(val data: List<OpenAiModelRef> = emptyList())
 
 @Serializable
 data class OpenAiModelRef(val id: String)
-
-// ---------- Anthropic 协议 DTO 已移除（统一 OpenAI 兼容协议） ----------

@@ -15,6 +15,7 @@ import com.novelai.assistant.data.db.BookDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -105,6 +106,20 @@ class BookImportManager @Inject constructor(
 
     private fun coversDir(): File = File(context.filesDir, "covers").apply { mkdirs() }
 
+    private val coverFileSeq = AtomicLong(System.currentTimeMillis())
+
+    /**
+     * 每次写封面都生成全新的文件路径。路径必须随更换而变化：
+     * coverUri 不变时 Room 不会重发该行，UI 的 remember(key) 也不会重新解码，会一直显示旧封面。
+     */
+    private fun newCoverFile(bookId: String): File {
+        var file: File
+        do {
+            file = File(coversDir(), "${bookId}_${coverFileSeq.incrementAndGet()}.img")
+        } while (file.exists())
+        return file
+    }
+
     /** 保存抓取到的封面字节（自动封面），失败返回 null */
     fun storeCoverBytes(bookId: String, bytes: ByteArray): String? = runCatching {
         val file = File(coversDir(), "$bookId.img")
@@ -114,7 +129,7 @@ class BookImportManager @Inject constructor(
 
     /**
      * 从系统相册导入封面：EXIF 转正、最长边限制 1024、压缩为 JPEG 落盘，并清理旧封面文件。
-     * 成功返回新封面绝对路径，失败返回 null。
+     * 每次写入新文件名（见 [newCoverFile]），成功返回新封面绝对路径，失败返回 null。
      */
     suspend fun setCoverFromUri(bookId: String, oldCoverPath: String?, uri: Uri): String? =
         withContext(Dispatchers.IO) {
@@ -155,7 +170,7 @@ class BookImportManager @Inject constructor(
                     )
                 }
 
-                val file = File(coversDir(), "$bookId.img")
+                val file = newCoverFile(bookId)
                 file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
                 bitmap.recycle()
 

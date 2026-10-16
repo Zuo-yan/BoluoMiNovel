@@ -65,9 +65,9 @@ fun OnboardingScreen(
                 title = "第一步 · 接入你的 AI",
                 body = listOf(
                     "1. 打开「设置 → 添加提供商」",
-                    "2. 点击厂商预设（OpenAI / Claude / DeepSeek / Kimi / 硅基流动 / Ollama）",
-                    "3. 粘贴你的 API Key，Base URL 支持任意 OpenAI 兼容中转站",
-                    "4. 点击「测试连接」验证，密钥经 Keystore 加密存储"
+                    "2. 选择厂商及平台／地域，或选择自定义服务",
+                    "3. 填写 API Key，确认协议、服务地址与模型 ID",
+                    "4. 可自动识别最大输出；连接测试读取模型接口，密钥经 Keystore 加密存储"
                 )
             ),
             OnboardingPage(
@@ -75,6 +75,7 @@ fun OnboardingScreen(
                 title = "第二步 · 阅读与创作",
                 body = listOf(
                     "· 书架右上角导入 TXT / Markdown / EPUB",
+                    "·「菠萝包」登录账号查看书架，点书直接继续阅读",
                     "· 阅读时长按段落「划线即问」，AI 自动检索相关章节作答",
                     "· 底栏「AI 续写」：单章续写，或 What-if 推演平行世界分支",
                     "· 分支树中随时回看你的 AI 衍生剧情"

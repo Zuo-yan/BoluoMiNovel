@@ -15,8 +15,8 @@ android {
         applicationId = "com.novelai.assistant"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.14.0"
+        versionCode = 16
+        versionName = "0.16.0"
     }
 
     buildTypes {
@@ -93,4 +93,5 @@ dependencies {
     implementation(libs.juniversalchardet)
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver3:5.2.1")
 }

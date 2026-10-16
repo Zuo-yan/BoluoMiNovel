@@ -145,6 +145,8 @@ fun ReaderScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val chapterIndex by viewModel.chapterIndex.collectAsStateWithLifecycle()
     val currentChapter by viewModel.currentChapter.collectAsStateWithLifecycle()
+    val chapterError by viewModel.chapterError.collectAsStateWithLifecycle()
+    var sfToolsOpen by remember { mutableStateOf(false) }
     val chromeVisible by viewModel.chromeVisible.collectAsStateWithLifecycle()
     val tocOpen by viewModel.tocOpen.collectAsStateWithLifecycle()
     val settingsOpen by viewModel.settingsOpen.collectAsStateWithLifecycle()
@@ -269,8 +271,8 @@ fun ReaderScreen(
             .background(bgColor)
     ) {
         // ---------- 内容 ----------
-        currentChapter?.let { chapter ->
-            val paragraphs = remember(chapter.id) { Paginator.splitParagraphs(chapter.content) }
+        currentChapter?.takeIf { it.content.isNotBlank() }?.let { chapter ->
+            val paragraphs = remember(chapter.id, chapter.content) { Paginator.splitParagraphs(chapter.content) }
             val contentModifier: Modifier = Modifier
             val content: @Composable () -> Unit = {
                 if (settings.pageMode == PageMode.PAGED) {
@@ -326,7 +328,14 @@ fun ReaderScreen(
                 content()
             }
         } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = Color(palette.text))
+            Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (chapterError == null) CircularProgressIndicator(color = Color(palette.text))
+                else {
+                    Text(chapterError.orEmpty(), color = Color(palette.text))
+                    TextButton(onClick = { viewModel.retryChapter() }) { Text("重新加载") }
+                    Text("需要登录时，请返回菠萝包页登录账号", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
 
         // ---------- 顶栏 ----------
@@ -380,6 +389,9 @@ fun ReaderScreen(
                                 Icon(Icons.Rounded.MoreVert, contentDescription = "更多", tint = onChromeColor)
                             }
                             DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                                if (book?.sourceType == com.novelai.assistant.data.db.BookSourceType.BOLUOBAO) {
+                                    DropdownMenuItem(text = { Text("下载与导出（TXT / MD / EPUB）") }, onClick = { showExportMenu = false; sfToolsOpen = true })
+                                }
                                 DropdownMenuItem(
                                     text = { Text(if (selectionMode) "关闭文字选择模式" else "文字选择模式（可复制）") },
                                     onClick = {
@@ -390,6 +402,7 @@ fun ReaderScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("导出本章为 Markdown") },
+                                    enabled = currentChapter?.content?.isNotBlank() == true,
                                     onClick = {
                                         showExportMenu = false
                                         exportMarkdown = true
@@ -398,6 +411,7 @@ fun ReaderScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("导出本章为 TXT") },
+                                    enabled = currentChapter?.content?.isNotBlank() == true,
                                     onClick = {
                                         showExportMenu = false
                                         exportMarkdown = false
@@ -966,6 +980,10 @@ fun ReaderScreen(
                     )
                 }
             }
+        }
+
+        if (sfToolsOpen) {
+            com.novelai.assistant.ui.discover.SfBookToolsDialog(bookId, chapterIndex.coerceAtLeast(0), { sfToolsOpen = false })
         }
 
         // ---------- 听书定时面板 ----------

@@ -173,10 +173,9 @@ class AssistantViewModel @Inject constructor(
             }
             _currentBook.value = book
 
-            if (_currentChapter.value == null) {
-                val chapters = bookRepository.getChapters(bookId)
-                _currentChapter.value = chapters.getOrNull(book.currentReadingChapterIndex.coerceIn(0, chapters.lastIndex))
-            }
+            val latestBook = bookRepository.getBook(bookId) ?: book
+            val availableChapters = bookRepository.getChapters(bookId)
+            _currentChapter.value = if (availableChapters.isEmpty()) null else availableChapters.getOrNull(latestBook.currentReadingChapterIndex.coerceIn(0, availableChapters.lastIndex))
             val chapter = _currentChapter.value
 
             val history = chatRepository.recentMessages(bookId, 12)
@@ -236,8 +235,8 @@ class AssistantViewModel @Inject constructor(
                             _streamingText.value = builder.toString()
                         }
                         is StreamEvent.Usage -> {
-                            promptTokens += event.promptTokens
-                            completionTokens += event.completionTokens
+                            promptTokens = maxOf(promptTokens, event.promptTokens)
+                            completionTokens = maxOf(completionTokens, event.completionTokens)
                         }
                         is StreamEvent.Error -> _error.value = event.message
                         is StreamEvent.Done -> Unit

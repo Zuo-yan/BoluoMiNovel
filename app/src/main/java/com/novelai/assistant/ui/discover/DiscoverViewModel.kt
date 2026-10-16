@@ -53,10 +53,6 @@ class DiscoverViewModel @Inject constructor(
     private val _relay = MutableStateFlow(FanqieFetcher.DEFAULT_RELAY)
     val relay: StateFlow<String> = _relay.asStateFlow()
 
-    /** SF 登录 Cookie（可选），用于抓取自己已订阅的付费章节 */
-    private val _sfCookie = MutableStateFlow("")
-    val sfCookie: StateFlow<String> = _sfCookie.asStateFlow()
-
     private var fetchJob: Job? = null
 
     fun cancelImport() {
@@ -67,15 +63,7 @@ class DiscoverViewModel @Inject constructor(
     init {
         _relay.value = secureStorage.getPlain("fanqie_relay") ?: FanqieFetcher.DEFAULT_RELAY
         fanqieFetcher.relayBaseUrl = _relay.value
-        _sfCookie.value = secureStorage.getDecrypted("sfacg_cookie") ?: ""
-        sfacgFetcher.cookie = _sfCookie.value.ifBlank { null }
         setSource(FetchSource.SFACG)
-    }
-
-    fun setSfCookie(cookie: String) {
-        _sfCookie.value = cookie.trim()
-        sfacgFetcher.cookie = _sfCookie.value.ifBlank { null }
-        secureStorage.putEncrypted("sfacg_cookie", _sfCookie.value)
     }
 
     fun resetRelay() = setRelay(FanqieFetcher.DEFAULT_RELAY)
@@ -128,7 +116,8 @@ class DiscoverViewModel @Inject constructor(
                     val content = when (_source.value) {
                         FetchSource.SFACG -> sfacgFetcher.fetchChapterContent(ch.url)
                         FetchSource.FANQIE -> fanqieFetcher.fetchChapterContent(ch.url)
-                    }.getOrElse { e -> listOf("（本章抓取失败：${e.message}）") }
+                    }.getOrThrow()
+                    check(content.any { it.isNotBlank() }) { "本章没有取得正文" }
                     imported.add(ch.title to content.joinToString("\n\n"))
                 }
                 val id = bookRepository.importFetched(

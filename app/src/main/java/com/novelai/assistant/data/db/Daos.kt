@@ -40,6 +40,18 @@ interface BookDao {
 
 @Dao
 interface ChapterDao {
+    @Query("UPDATE chapters SET content = :content, fetchError = '', downloaded = CASE WHEN :pin THEN 1 ELSE downloaded END WHERE id = :id")
+    suspend fun cacheRemote(id: String, content: String, pin: Boolean)
+
+    @Query("UPDATE chapters SET fetchError = :error WHERE id = :id")
+    suspend fun setFetchError(id: String, error: String)
+
+    @Query("UPDATE chapters SET content = '', fetchError = '' WHERE remoteId IS NOT NULL AND downloaded = 0")
+    suspend fun clearReadingCache()
+
+    @Query("SELECT COALESCE(SUM(length(CAST(content AS BLOB))), 0) FROM chapters WHERE remoteId IS NOT NULL AND downloaded = 0")
+    fun observeCacheBytes(): Flow<Long>
+
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY chapterIndex ASC")
     fun observeByBook(bookId: String): Flow<List<ChapterEntity>>
 

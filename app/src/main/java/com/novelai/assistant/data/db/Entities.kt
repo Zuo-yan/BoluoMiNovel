@@ -40,7 +40,11 @@ data class ChapterEntity(
     val parentChapterId: String? = null,
     val promptUsed: String? = null,
     val isFavorite: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    @androidx.room.ColumnInfo(defaultValue = "NULL") val remoteId: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0") val isPaid: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "0") val downloaded: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "''") val fetchError: String = ""
 )
 
 @Entity(tableName = "ai_chat_records")

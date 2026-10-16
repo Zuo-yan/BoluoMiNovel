@@ -23,7 +23,14 @@ data class ApiProviderConfig(
     val customHeaders: Map<String, String> = emptyMap(),
     val maxTokens: Int = 4096,
     val temperature: Float = 0.7f,
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+    val configVersion: Int = 1,
+    val autoMaxTokens: Boolean = false,
+    val temperatureEnabled: Boolean = true,
+    val chatTokenField: String = "auto",
+    val presetId: String = "",
+    val platformId: String = "",
+    val capability: com.novelai.assistant.data.network.ModelCapability? = null
 )
 
 /** 任务分流：某场景使用哪个提供商的哪个模型 */
@@ -56,7 +63,7 @@ class AiConfigRepository @Inject constructor(
     private fun loadProviders(): List<ApiProviderConfig> {
         val raw = secureStorage.getDecrypted(KEY_PROVIDERS) ?: return emptyList()
         return runCatching {
-            json.decodeFromString(ListSerializer(ApiProviderConfig.serializer()), raw)
+            json.decodeFromString(ListSerializer(ApiProviderConfig.serializer()), raw).map(::migrateProviderConfig)
         }.getOrDefault(emptyList())
     }
 
@@ -121,22 +128,12 @@ class AiConfigRepository @Inject constructor(
         private const val ROUTE_CONTINUATION = "route_continuation"
         private const val ROUTE_COMPANION = "route_companion"
 
-        /** 厂商预设模版（统一 OpenAI 兼容协议；Claude 等模型经中转站以模型名访问） */
-        data class ProviderPreset(
-            val name: String,
-            val baseUrl: String,
-            val kind: ProviderKind,
-            val suggestedModel: String
-        )
-
-        val PRESETS = listOf(
-            ProviderPreset("OpenAI", "https://api.openai.com/v1", ProviderKind.OPENAI_COMPATIBLE, "gpt-4o-mini"),
-            ProviderPreset("Claude (中转)", "", ProviderKind.OPENAI_COMPATIBLE, "claude-sonnet-4-5"),
-            ProviderPreset("DeepSeek", "https://api.deepseek.com/v1", ProviderKind.OPENAI_COMPATIBLE, "deepseek-chat"),
-            ProviderPreset("Moonshot Kimi", "https://api.moonshot.cn/v1", ProviderKind.OPENAI_COMPATIBLE, "moonshot-v1-32k"),
-            ProviderPreset("SiliconFlow 硅基流动", "https://api.siliconflow.cn/v1", ProviderKind.OPENAI_COMPATIBLE, "deepseek-ai/DeepSeek-V2.5"),
-            ProviderPreset("Ollama 本地", "http://localhost:11434/v1", ProviderKind.OPENAI_COMPATIBLE, "qwen2.5:7b"),
-            ProviderPreset("自定义中转站", "", ProviderKind.OPENAI_COMPATIBLE, "")
-        )
+        val PRESETS get() = com.novelai.assistant.data.network.ProviderPresets.items
     }
 }
+
+/** In v0.15 the historical ANTHROPIC enum also sent Chat Completions. Preserve that behavior. */
+fun migrateProviderConfig(config: ApiProviderConfig): ApiProviderConfig = if (config.configVersion < 2) {
+    config.copy(configVersion = 2, kind = if (config.kind == ProviderKind.ANTHROPIC) ProviderKind.OPENAI_COMPATIBLE else config.kind,
+        chatTokenField = "max_tokens")
+} else config

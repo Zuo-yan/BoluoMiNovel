@@ -23,7 +23,7 @@ class Converters {
 
 @Database(
     entities = [BookEntity::class, ChapterEntity::class, AiChatRecordEntity::class, CategoryEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -32,4 +32,15 @@ abstract class NovelDatabase : RoomDatabase() {
     abstract fun chapterDao(): ChapterDao
     abstract fun chatDao(): ChatDao
     abstract fun categoryDao(): CategoryDao
+}
+
+val SF_MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE chapters ADD COLUMN remoteId TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE chapters ADD COLUMN isPaid INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE chapters ADD COLUMN downloaded INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE chapters ADD COLUMN fetchError TEXT NOT NULL DEFAULT ''")
+        // Old failed imports must not be treated as readable/exportable text.
+        db.execSQL("UPDATE chapters SET content = '', fetchError = '旧版抓取失败，请重新获取本书目录' WHERE content LIKE '（本章抓取失败：%'")
+    }
 }

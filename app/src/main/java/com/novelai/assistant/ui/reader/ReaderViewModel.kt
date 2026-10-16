@@ -24,6 +24,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -103,8 +106,23 @@ class ReaderViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var progressJob: Job? = null
+    private val reload = MutableStateFlow(0)
+    private val _chapterError = MutableStateFlow<String?>(null)
+    val chapterError = _chapterError.asStateFlow()
+    fun retryChapter() { reload.value++ }
 
     init {
+        viewModelScope.launch {
+            combine(currentChapter, reload) { chapter, retry -> Triple(chapter?.id, chapter?.content?.isBlank(), retry) }
+                .distinctUntilChanged().collectLatest { (id, empty, _) ->
+                    _chapterError.value = null
+                    if (id != null && empty == true) {
+                        try { bookRepository.readableChapter(id) }
+                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: Exception) { _chapterError.value = e.message ?: "正文加载失败" }
+                    }
+                }
+        }
         if (initialChapterIndex >= 0) {
             _chapterIndex.value = initialChapterIndex
         }
@@ -231,6 +249,18 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun startTtsForChapter(chapter: ChapterEntity, startIndex: Int = 0) {
+        if (chapter.content.isBlank()) {
+            val requestGeneration = ttsPlayer.playbackGeneration
+            viewModelScope.launch {
+                try {
+                    val loaded = bookRepository.readableChapter(chapter.id)
+                    if (requestGeneration == ttsPlayer.playbackGeneration && _chapterIndex.value == chapter.chapterIndex) startTtsForChapter(loaded, startIndex)
+                }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { if (requestGeneration == ttsPlayer.playbackGeneration) { _chapterError.value = e.message ?: "本章无法朗读"; ttsPlayer.stop() } }
+            }
+            return
+        }
         val paragraphs = Paginator.splitParagraphs(chapter.content)
         if (paragraphs.isEmpty()) {
             onTtsChapterEnd()
@@ -409,6 +439,7 @@ class ReaderViewModel @Inject constructor(
     fun exportChapter(uri: Uri?, markdown: Boolean) {
         if (uri == null) return
         val chapter = currentChapter.value ?: return
+        if (chapter.content.isBlank()) return
         viewModelScope.launch {
             runCatching {
                 val text = if (markdown) {

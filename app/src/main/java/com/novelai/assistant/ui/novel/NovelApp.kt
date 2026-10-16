@@ -67,6 +67,8 @@ object Routes {
     const val ONBOARDING = "onboarding"
     const val BOOKSHELF = "bookshelf"
     const val DISCOVER = "discover"
+    const val FANQIE = "fanqie"
+    const val SF_CATALOG = "sf_catalog/{bookId}"
     const val ASSISTANT = "assistant"
     const val SETTINGS = "settings"
     const val LISTENING = "listening"
@@ -97,7 +99,7 @@ enum class TopLevelDestination(
     val icon: ImageVector
 ) {
     BOOKSHELF("bookshelf", "书架", Icons.AutoMirrored.Rounded.LibraryBooks),
-    DISCOVER("discover", "发现", Icons.Rounded.Explore),
+    DISCOVER("discover", "菠萝包", Icons.Rounded.Explore),
     ASSISTANT("assistant", "AI助手", Icons.Rounded.AutoAwesome),
     SETTINGS("settings", "设置", Icons.Rounded.Settings)
 }
@@ -162,16 +164,17 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                     .padding(top = 0.dp, bottom = padding.calculateBottomPadding())
                     .glassSource(hazeState),
                 enterTransition = {
-                    slideInHorizontally(tween(340)) { it / 3 } + fadeIn(tween(300))
+                    if (targetState.destination.route in topLevelRoutes) fadeIn(tween(100))
+                    else slideInHorizontally(tween(220, easing = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.72f, 0f, 1f))) { it / 5 } + fadeIn(tween(160))
                 },
                 exitTransition = {
-                    slideOutHorizontally(tween(340)) { -it / 5 } + fadeOut(tween(280))
+                    fadeOut(tween(100))
                 },
                 popEnterTransition = {
-                    slideInHorizontally(tween(340)) { -it / 5 } + fadeIn(tween(300))
+                    fadeIn(tween(140))
                 },
                 popExitTransition = {
-                    slideOutHorizontally(tween(340)) { it / 3 } + fadeOut(tween(280))
+                    slideOutHorizontally(tween(180)) { it / 5 } + fadeOut(tween(100))
                 }
             ) {
                 composable(Routes.ONBOARDING) {
@@ -190,7 +193,14 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                     )
                 }
                 composable(Routes.DISCOVER) {
-                    DiscoverScreen()
+                    DiscoverScreen(onOpenBook = { navController.navigate(Routes.reader(it)) },
+                        onOpenCatalog = { navController.navigate("sf_catalog/$it") },
+                        onOpenFanqie = { navController.navigate(Routes.FANQIE) })
+                }
+                composable(Routes.FANQIE) { com.novelai.assistant.ui.discover.FanqieScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.SF_CATALOG, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) { entry ->
+                    val id = entry.arguments?.getString("bookId").orEmpty()
+                    com.novelai.assistant.ui.discover.SfCatalogScreen(id, { navController.popBackStack() }, { index -> navController.navigate(Routes.readerAt(id, index)) })
                 }
                 composable(Routes.ASSISTANT) {
                     AssistantScreen()

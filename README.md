@@ -6,12 +6,32 @@
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-blue.svg?style=flat-square" alt="UI" />
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean%20Architecture-orange.svg?style=flat-square" alt="Architecture" />
   <img src="https://img.shields.io/badge/BYOK-Privacy%20First-red.svg?style=flat-square" alt="BYOK" />
-  <img src="https://img.shields.io/badge/Latest%20Version-v0.10.0-success.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Latest%20Version-v0.16.0-success.svg?style=flat-square" alt="Version" />
 </p>
 
 ---
 
 ## 📖 项目简介
+
+### v0.16.0：菠萝包专页与四协议模型设置
+
+- 底栏「菠萝包」以封面书架为主，点书直接继续阅读；账号为紧凑入口，书号／链接在页头加号，番茄、下载任务及账号缓存管理在右上角「更多」。书籍菜单提供独立目录、下载与导出。
+- 原生 Kotlin 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini，分别处理请求、SSE 正文、取消、错误和累计用量。
+- 提供 DeepSeek、Anthropic、OpenAI、Google、智谱 AI（Z.ai）、阿里云百炼、Moonshot、xAI、腾讯混元九家预设；添加时明确选择平台／地域，也可配置自定义和本地服务。协议和地址均可编辑。
+- 「单次最大输出 Token」可自动识别或手动覆盖，优先当前接口元数据，再用精确匹配的内置官方资料；未知时保留当前值。上下文容量单独显示，识别结果标明来源与时间，不使用长篇生成探测上限。
+- 旧配置保留此前实际使用的 Chat 协议及输出参数；书籍数据库保持非破坏性迁移。具体测试与限制见 [v0.16.0 验证记录](docs/v0.16.0-verification.md)。
+
+### v0.15.0：菠萝包账号书架与在线阅读
+
+- 在「发现 → 菠萝包 SF」使用账号/手机号和密码登录。App 会话通过 Android Keystore 加密保存；密码只用于本次登录，不落盘。原网页 Cookie 输入入口已移除。
+- 登录后读取账号书架及分类；点选作品或输入官方书籍链接打开目录，进入原生阅读器按章加载。只读平台数据，阅读进度保存在本应用。
+- 免费和账号已有购买权限的章节可在线阅读、听书、缓存及下载。遇到安全验证（1148），请先在官方菠萝包 App 完成，再回来重新登录。应用不会购买章节。
+- 阅读器右上角「更多 → 下载与导出」支持本章、范围和全书下载，以及 TXT / Markdown / EPUB 导出。缺章时列出未购和失败章节，明确确认后才能导出不完整版本；文件附有缺章说明。
+- 任务可暂停、继续或重试；成功正文持久化保存，重新打开应用可继续上次任务。任务属于应用进程，系统结束进程后需要手动继续。
+- 自动缓存已读正文；发现页可查看及清理缓存，清理时保留主动下载。退出账号清除会话和远端书架信息，保留本地正文和进度；可在本地书架删除书籍。
+- Room 1 → 2 使用非破坏性迁移，并清理旧版被误存为正文的抓取错误提示。AI 伴读检索只使用本地已有正文，不自动下载全书。
+
+验证命令与协议来源见 [菠萝包接入说明](docs/sfacg-integration.md)。实际账号登录、私有书架与已购 VIP 验收需要由账号持有人在应用内完成；匿名公开接口验证不能替代这一验收。
 
 **AI 智阅小说（NovelAI Assistant）** 是一款面向数字阅读爱好者的现代全格式电子书阅读器，深度融合了**上下文长文本 AI 伴读助手（RAG/Agent）**与**沉浸式 AI 连续续写及平行世界分支推演**能力。
 
@@ -70,8 +90,8 @@
 - **章节身份标识**：`[原]` 原作章节、`[AI]` AI 续写章节、`[分]` 平行分支章节。
 
 ### 5. 🔑 BYOK 多模型中心与任务分流 (Model Routing)
-- **多模型厂商模版预设**：OpenAI、Anthropic Claude、DeepSeek、Moonshot (Kimi)、SiliconFlow (硅基流动)、Ollama (本地私有部署) 等。
-- **通用 OpenAI 协议兼容**：支持自定义 Base URL、API Key 与 Model Name，兼容各类聚合分发与中转平台。
+- **九家厂商预设与平台选择**：DeepSeek、Anthropic、OpenAI、Google、智谱、阿里云百炼、Moonshot、xAI、腾讯混元；保留自定义入口，硅基流动、Ollama 及中转站可填写各自地址。
+- **四种独立 API 协议**：Chat Completions、Responses、Anthropic Messages、Gemini，支持自定义 Base URL、Key、模型 ID 和请求头。
 - **真实生效的多场景分流**：
   - 为**续写场景**指定长文本拟合能力强的高阶模型（如 Claude 3.5 Sonnet / DeepSeek-V2.5）；
   - 为**速览伴读场景**指定响应极速的轻量模型（如 GPT-4o-mini / DeepSeek-Lite）。

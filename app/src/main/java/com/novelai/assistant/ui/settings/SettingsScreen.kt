@@ -85,7 +85,7 @@ fun SettingsScreen(
 
         SectionCard(
             title = "模型与 API",
-            footer = "兼容 OpenAI 协议的中转站/聚合平台均可接入；密钥经 Android Keystore 加密存储"
+            footer = "支持 Chat Completions、Responses、Anthropic Messages 与 Gemini；密钥经 Android Keystore 加密存储"
         ) {
             providers.forEach { config ->
                 val ping = pingResults[config.id]
@@ -146,7 +146,7 @@ fun SettingsScreen(
             }
             SettingRow(
                 title = "添加提供商",
-                subtitle = "OpenAI / Claude / DeepSeek / Kimi / 硅基流动 / Ollama / 自定义",
+                subtitle = "九家厂商预设 · 自定义 / 本地服务",
                 icon = Icons.Rounded.Add,
                 onClick = { onEditProvider("new") }
             )

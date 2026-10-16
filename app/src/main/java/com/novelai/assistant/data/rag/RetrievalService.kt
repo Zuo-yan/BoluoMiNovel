@@ -30,11 +30,11 @@ class RetrievalService @Inject constructor(
         spoilerFree: Boolean,
         currentChapterIndex: Int?
     ): List<ScoredChapter> = withContext(Dispatchers.Default) {
-        val chapters = bookRepository.getChapters(bookId)
+        val chapters = bookRepository.getChapters(bookId).filter { it.content.isNotBlank() }
         if (chapters.isEmpty()) return@withContext emptyList()
 
         mutex.withLock {
-            val key = CacheKey(bookId, chapters.size.toLong() * 1_000_000L + (chapters.lastOrNull()?.createdAt ?: 0L))
+            val key = CacheKey(bookId, chapters.fold(1L) { hash, chapter -> 31 * hash + chapter.content.hashCode() })
             if (cached != key) {
                 index = ChapterSearchIndex.build(chapters)
                 chaptersRef = chapters
