@@ -60,6 +60,10 @@ class SfViewModel @Inject constructor(
 
     // 官方动态系统标签列表（从接口 novels/0/sysTags 实时抓取，全量69个）
     val officialTags = MutableStateFlow<List<SfSysTag>>(emptyList())
+    val categories = MutableStateFlow<List<SfCategory>>(emptyList())
+    private val _browseFilter = MutableStateFlow(SfBrowseFilter())
+    val browseFilter = _browseFilter.asStateFlow()
+    private var optionsJob: Job? = null
     val cloudShelfMsg = MutableStateFlow<String?>(null)
     fun clearCloudShelfMsg() { cloudShelfMsg.value = null }
 
@@ -71,7 +75,8 @@ class SfViewModel @Inject constructor(
     val hasMoreBrowse = MutableStateFlow(true)
     val isBrowseLoadingMore = MutableStateFlow(false)
     private var browsePage = 1
-    private var currentMultiTagIds = emptyList<Int>()
+    private var browseRevision = 0
+    private var moreBrowseJob: Job? = null
 
     private val selectedBook = MutableStateFlow<String?>(null)
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -81,6 +86,7 @@ class SfViewModel @Inject constructor(
     val chapters = selectedBook.flatMapLatest { id -> if (id == null) flowOf(emptyList()) else db.chapterDao().observeByBook(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private var operation: Job? = null
+    private var operationRevision = 0
     init {
         viewModelScope.launch {
             account.collect { current -> if (current == null) _state.update {
@@ -91,13 +97,14 @@ class SfViewModel @Inject constructor(
     fun restoreSession() { if (session.hasSession && state.value.shelves.isEmpty()) action { session.validate(); refreshShelvesInternal() } }
 
     private fun action(block: suspend () -> Unit) {
+        val revision = ++operationRevision
         operation?.cancel()
         operation = viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             try { block() }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { _state.update { it.copy(error = e.message ?: "操作失败") } }
-            finally { _state.update { it.copy(busy = false) } }
+            catch (e: Exception) { if (revision == operationRevision) _state.update { it.copy(error = e.message ?: "操作失败") } }
+            finally { if (revision == operationRevision) _state.update { it.copy(busy = false) } }
         }
     }
 
@@ -120,93 +127,79 @@ class SfViewModel @Inject constructor(
     }
 
     fun search(query: String) {
+        if (query.isBlank()) { loadRank(); return }
+        invalidateBrowsePage()
+        browsePage = 1
+        hasMoreBrowse.value = true
         _searchQuery.value = query
-        if (query.isBlank()) {
-            _searchResults.value = emptyList()
-            _isSearching.value = false
-            return
-        }
         _isSearching.value = true
+        _searchResults.value = emptyList()
+        val revision = browseRevision
         action {
             val results = session.search(query)
+            if (revision != browseRevision) return@action
             _searchResults.value = results
+            hasMoreBrowse.value = results.size >= 20
         }
     }
 
-    fun clearSearch() {
+    private fun clearSearch() {
+        invalidateBrowsePage()
         _searchQuery.value = ""
         _searchResults.value = emptyList()
         _isSearching.value = false
     }
 
     fun loadRank(sort: String = _currentSort.value) {
-        _currentSort.value = sort
-        currentMultiTagIds = emptyList()
+        clearSearch()
+        // Filtered browsing uses the supported category endpoint sorts, rather than
+        // presenting a sales/week rank that the filtered endpoint does not provide.
+        _currentSort.value = if (browseFilter.value.active && sort !in listOf("month", "latest")) "month" else sort
         browsePage = 1
         hasMoreBrowse.value = true
+        _rankList.value = emptyList()
+        val filter = browseFilter.value
+        val selectedSort = currentSort.value
+        val revision = browseRevision
         action {
-            val list = session.browseRank(sort, 1)
+            val list = browsePage(filter, selectedSort, 1)
+            if (revision != browseRevision) return@action
             _rankList.value = list
+            hasMoreBrowse.value = list.size >= 20
         }
     }
 
     fun fetchOfficialTags() {
-        if (officialTags.value.isNotEmpty()) return
-        action {
-            val list = session.fetchOfficialTags()
-            officialTags.value = list
+        if (optionsJob?.isActive == true || (officialTags.value.isNotEmpty() && categories.value.isNotEmpty())) return
+        // Metadata must not cancel the initial book request, or be cancelled by it.
+        optionsJob = viewModelScope.launch {
+            try {
+                if (officialTags.value.isEmpty()) officialTags.value = session.fetchOfficialTags()
+                if (categories.value.isEmpty()) categories.value = session.fetchCategories()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _state.update { it.copy(error = e.message ?: "筛选选项加载失败") } }
         }
     }
 
-    fun loadTagNovels(sysTagId: Int) {
-        currentMultiTagIds = listOf(sysTagId)
-        browsePage = 1
-        hasMoreBrowse.value = true
-        action {
-            val list = session.browseByTag(sysTagId, 1)
-            _rankList.value = list
-        }
+    fun selectCategory(categoryId: Int) {
+        _browseFilter.update { it.copy(categoryId = categoryId) }
+        loadRank()
     }
 
     fun loadMultiTagNovels(sysTagIds: List<Int>) {
-        currentMultiTagIds = sysTagIds
-        browsePage = 1
-        hasMoreBrowse.value = true
-        if (sysTagIds.isEmpty()) {
-            loadRank(currentSort.value)
-            return
-        }
-        val idToName = officialTags.value.associate { it.id to it.name }
-        val names = sysTagIds.mapNotNull { idToName[it] }
-        if (names.isNotEmpty()) {
-            filterByTags(names)
-        } else {
-            action {
-                val list = session.browseByMultiTags(sysTagIds, 1)
-                _rankList.value = list
-            }
-        }
+        _browseFilter.update { it.copy(tagIds = sysTagIds.toSet()) }
+        loadRank()
     }
 
-    fun filterByTags(tagNames: List<String>) {
-        browsePage = 1
-        hasMoreBrowse.value = true
-        if (tagNames.isEmpty()) {
-            clearSearch()
-            loadRank(currentSort.value)
-            return
-        }
-        val query = tagNames.joinToString(" ")
-        _searchQuery.value = query
-        _isSearching.value = true
-        action {
-            val results = session.search(query, 1)
-            _searchResults.value = results
-            if (results.size < 20) {
-                hasMoreBrowse.value = false
-            }
-        }
+    private fun invalidateBrowsePage() {
+        browseRevision++
+        moreBrowseJob?.cancel()
+        isBrowseLoadingMore.value = false
     }
+
+    private suspend fun browsePage(filter: SfBrowseFilter, sort: String, page: Int) =
+        if (filter.active) session.browseFiltered(filter, page, if (sort == "latest") "updatetime" else "viewtimes")
+        else session.browseRank(sort, page)
 
     fun addToCloudShelf(novelId: String) {
         viewModelScope.launch {
@@ -241,19 +234,21 @@ class SfViewModel @Inject constructor(
     fun loadMoreBrowse() {
         if (isBrowseLoadingMore.value || !hasMoreBrowse.value || state.value.busy) return
         val nextPage = browsePage + 1
-        viewModelScope.launch {
+        val revision = browseRevision
+        val filter = browseFilter.value
+        val sort = currentSort.value
+        val searching = isSearching.value
+        val query = searchQuery.value
+        moreBrowseJob = viewModelScope.launch {
             isBrowseLoadingMore.value = true
             try {
-                val newItems = when {
-                    isSearching.value -> session.search(_searchQuery.value, nextPage)
-                    currentMultiTagIds.isNotEmpty() -> session.browseByMultiTags(currentMultiTagIds, nextPage)
-                    else -> session.browseRank(currentSort.value, nextPage)
-                }
+                val newItems = if (searching) session.search(query, nextPage) else browsePage(filter, sort, nextPage)
+                if (revision != browseRevision) return@launch
                 if (newItems.isEmpty()) {
                     hasMoreBrowse.value = false
                 } else {
                     browsePage = nextPage
-                    if (isSearching.value) {
+                    if (searching) {
                         _searchResults.update { (it + newItems).distinctBy { item -> item.id } }
                     } else {
                         _rankList.update { (it + newItems).distinctBy { item -> item.id } }
@@ -262,9 +257,11 @@ class SfViewModel @Inject constructor(
                         hasMoreBrowse.value = false
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (revision == browseRevision) _state.update { it.copy(error = e.message ?: "下一页加载失败") }
             } finally {
-                isBrowseLoadingMore.value = false
+                if (revision == browseRevision) isBrowseLoadingMore.value = false
             }
         }
     }

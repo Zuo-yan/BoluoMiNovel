@@ -44,13 +44,14 @@ fun SfBrowseScreen(
     val rankList by viewModel.rankList.collectAsStateWithLifecycle()
     val currentSort by viewModel.currentSort.collectAsStateWithLifecycle()
     val officialTags by viewModel.officialTags.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val browseFilter by viewModel.browseFilter.collectAsStateWithLifecycle()
     val hasMoreBrowse by viewModel.hasMoreBrowse.collectAsStateWithLifecycle()
     val isBrowseLoadingMore by viewModel.isBrowseLoadingMore.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     var searchInput by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("全部") }
-    var selectedTagIds by remember { mutableStateOf(setOf<Int>()) }
+    val selectedTagIds = browseFilter.tagIds
     var showTagFilterSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -95,11 +96,10 @@ fun SfBrowseScreen(
                         onClick = {
                             if (isSearching) {
                                 viewModel.search(searchInput.trim())
-                            } else if (selectedTagIds.isNotEmpty()) {
-                                viewModel.loadMultiTagNovels(selectedTagIds.toList())
                             } else {
                                 viewModel.loadRank(currentSort)
                             }
+                            viewModel.fetchOfficialTags()
                         },
                         enabled = !state.busy
                     ) {
@@ -135,7 +135,7 @@ fun SfBrowseScreen(
                     shape = RoundedCornerShape(12.dp),
                     trailingIcon = {
                         if (searchInput.isNotEmpty()) {
-                            IconButton({ searchInput = ""; viewModel.clearSearch() }) {
+                            IconButton({ searchInput = ""; viewModel.loadRank() }) {
                                 Icon(Icons.Rounded.Close, "清空")
                             }
                         }
@@ -167,23 +167,14 @@ fun SfBrowseScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("全部", "魔幻", "玄幻", "古风", "科幻", "校园", "都市", "游戏", "悬疑").forEach { cat ->
+                (listOf(com.novelai.assistant.data.sf.SfCategory(0, "全部")) + categories).forEach { cat ->
                     FilterChip(
-                        selected = selectedCategory == cat && !isSearching,
+                        selected = browseFilter.categoryId == cat.id && !isSearching,
                         onClick = {
-                            selectedCategory = cat
                             searchInput = ""
-                            if (cat == "全部") {
-                                if (selectedTagIds.isNotEmpty()) {
-                                    viewModel.loadMultiTagNovels(selectedTagIds.toList())
-                                } else {
-                                    viewModel.loadRank(currentSort)
-                                }
-                            } else {
-                                viewModel.search(cat)
-                            }
+                            viewModel.selectCategory(cat.id)
                         },
-                        label = { Text(cat, fontWeight = if (selectedCategory == cat) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text(cat.name, fontWeight = if (browseFilter.categoryId == cat.id) FontWeight.Bold else FontWeight.Normal) },
                         shape = RoundedCornerShape(10.dp)
                     )
                 }
@@ -197,19 +188,17 @@ fun SfBrowseScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(
+                val sorts = if (browseFilter.active) listOf("month" to "人气最高", "latest" to "最新更新") else listOf(
                     "all" to "畅销总榜",
                     "month" to "人气最高",
                     "week" to "飙升周榜",
                     "latest" to "最新更新"
-                ).forEach { (sortKey, label) ->
+                )
+                sorts.forEach { (sortKey, label) ->
                     FilterChip(
-                        selected = currentSort == sortKey && !isSearching && selectedTagIds.isEmpty(),
+                        selected = currentSort == sortKey && !isSearching,
                         onClick = {
                             searchInput = ""
-                            selectedTagIds = emptySet()
-                            selectedCategory = "全部"
-                            viewModel.clearSearch()
                             viewModel.loadRank(sortKey)
                         },
                         label = { Text(label) },
@@ -236,7 +225,7 @@ fun SfBrowseScreen(
                             color = MaterialTheme.colorScheme.primaryContainer,
                             modifier = Modifier.clickable {
                                 val updated = selectedTagIds - tagId
-                                selectedTagIds = updated
+                                searchInput = ""
                                 viewModel.loadMultiTagNovels(updated.toList())
                             }
                         ) {
@@ -252,18 +241,22 @@ fun SfBrowseScreen(
                     }
                     TextButton(
                         onClick = {
-                            selectedTagIds = emptySet()
-                            viewModel.loadRank(currentSort)
+                            searchInput = ""
+                            viewModel.loadMultiTagNovels(emptyList())
                         },
                         contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
-                        Text("重置", style = MaterialTheme.typography.labelSmall)
+                        Text("清空标签", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
 
             if (state.busy) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            state.error?.let { error ->
+                Text(error, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
             }
 
             // 作品列表：全屏独立滑动，彻底避免手势冲突与抽搐
@@ -285,7 +278,7 @@ fun SfBrowseScreen(
                     // 分页无限滚动加载更多
                     if (hasMoreBrowse) {
                         item {
-                            LaunchedEffect(displayList.size, isBrowseLoadingMore) {
+                            LaunchedEffect(displayList.size) {
                                 if (!isBrowseLoadingMore) {
                                     viewModel.loadMoreBrowse()
                                 }
@@ -338,7 +331,7 @@ fun SfBrowseScreen(
                             modifier = Modifier.size(48.dp)
                         )
                         Text(
-                            if (isSearching) "未找到匹配书籍" else "暂无该标签下的作品，请点击右上角漏斗重选",
+                            if (isSearching) "未找到匹配书籍" else "没有同时符合当前分类与全部标签的作品，可减少标签或切换分类。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -368,6 +361,8 @@ fun SfBrowseScreen(
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFE53935) // 官方标志红
                 )
+                Text("作品需同时包含所有已选标签，分类条件会保留。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                 if (officialTags.isEmpty()) {
                     Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -432,13 +427,9 @@ fun SfBrowseScreen(
                     }
                     Button(
                         onClick = {
-                            selectedTagIds = tempSelected
                             showTagFilterSheet = false
-                            if (tempSelected.isNotEmpty()) {
-                                viewModel.loadMultiTagNovels(tempSelected.toList())
-                            } else {
-                                viewModel.loadRank(currentSort)
-                            }
+                            searchInput = ""
+                            viewModel.loadMultiTagNovels(tempSelected.toList())
                         },
                         modifier = Modifier.weight(1.4f),
                         shape = RoundedCornerShape(12.dp),

@@ -17,9 +17,10 @@ fun DiscoverScreen(
     onOpenBook: (String) -> Unit,
     onOpenCatalog: (String) -> Unit,
     onOpenFanqie: () -> Unit,
-    onOpenBrowse: () -> Unit
+    onOpenBrowse: () -> Unit,
+    onOpenRecommendations: () -> Unit
 ) {
-    SfScreen(onOpenBook, onOpenCatalog, onOpenFanqie, onOpenBrowse)
+    SfScreen(onOpenBook, onOpenCatalog, onOpenFanqie, onOpenBrowse, onOpenRecommendations)
 }
 
 @Composable

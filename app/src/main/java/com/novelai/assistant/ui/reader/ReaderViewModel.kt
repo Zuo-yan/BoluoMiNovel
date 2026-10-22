@@ -109,6 +109,8 @@ class ReaderViewModel @Inject constructor(
     private val reload = MutableStateFlow(0)
     private val _chapterError = MutableStateFlow<String?>(null)
     val chapterError = _chapterError.asStateFlow()
+    private val _chapterFailureKind = MutableStateFlow<com.novelai.assistant.data.sf.SfFailureKind?>(null)
+    val chapterFailureKind = _chapterFailureKind.asStateFlow()
     fun retryChapter() { reload.value++ }
 
     init {
@@ -116,10 +118,14 @@ class ReaderViewModel @Inject constructor(
             combine(currentChapter, reload) { chapter, retry -> Triple(chapter?.id, chapter?.content?.isBlank(), retry) }
                 .distinctUntilChanged().collectLatest { (id, empty, _) ->
                     _chapterError.value = null
+                    _chapterFailureKind.value = null
                     if (id != null && empty == true) {
                         try { bookRepository.readableChapter(id) }
                         catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                        catch (e: Exception) { _chapterError.value = e.message ?: "正文加载失败" }
+                        catch (e: Exception) {
+                            _chapterFailureKind.value = (e as? com.novelai.assistant.data.sf.SfException)?.kind
+                            _chapterError.value = e.message ?: "正文加载失败"
+                        }
                     }
                 }
         }

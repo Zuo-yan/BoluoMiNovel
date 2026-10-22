@@ -1,4 +1,4 @@
-param([string]$BookId = '388081', [string]$Device = '910D166A-736E-3231-8B21-8D12DFD75F16')
+param([string]$BookId = '388081', [string]$Device = '910D166A-736E-3231-8B21-8D12DFD75F16', [string[]]$ProbeRoutes = @())
 $ErrorActionPreference = 'Stop'
 # Anonymous protocol smoke test. No account, password or user cookies are read.
 function Get-SfSign([string]$nonce, [long]$timestamp) {
@@ -20,7 +20,8 @@ function Get-SfSign([string]$nonce, [long]$timestamp) {
     [Convert]::ToHexString([System.Security.Cryptography.MD5]::HashData([Text.Encoding]::UTF8.GetBytes($normal)))
 }
 function Get-SfPublic([string]$path) {
-    for ($attempt=0; $attempt -lt 4; $attempt++) {
+    for ($attempt=0; $attempt -lt 3; $attempt++) {
+        if ($attempt -gt 0) { Start-Sleep -Seconds $attempt }
         $nonce=[guid]::NewGuid().ToString().ToUpperInvariant()
         $timestamp=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
         $headers=@{
@@ -31,11 +32,26 @@ function Get-SfPublic([string]$path) {
         }
         $response=Invoke-WebRequest "https://api.sfacg.com/$path" -Headers $headers -SkipHeaderValidation -TimeoutSec 25 -SkipHttpErrorCheck
         $payload=$response.Content | ConvertFrom-Json
+        if ($response.StatusCode -eq 429 -or $payload.status.httpCode -eq 429 -or $payload.status.errorCode -eq 1148) { throw 'Platform rate limit or verification: probe stopped' }
         if ($payload.status.httpCode -eq 417) { continue }
         if ($payload.status.httpCode -ne 200) { throw "SF returned HTTP $($response.StatusCode), status $($payload.status.httpCode), code $($payload.status.errorCode)" }
-        return $payload.data
+        $script:LastAttempts = $attempt + 1
+        return ,$payload.data
     }
-    throw 'SF signature rejected after four attempts'
+    throw 'SF signature rejected after three attempts; no more requests sent'
+}
+if ($ProbeRoutes.Count -gt 0) {
+    New-Item -ItemType Directory -Path 'build' -Force | Out-Null
+    $probeIndex = 0
+    foreach ($route in $ProbeRoutes) {
+        if ($probeIndex -gt 0) { Start-Sleep -Seconds 2 }
+        if ($route -notmatch '^(noveltypes(?:\?|$)|novels/|novel/|users/\d+/(novels|dynamics)|chaps/0/\d+/tsukkomis|Chaps/|ranks/|search/)') { throw 'Probe accepts only known public read routes' }
+        $data = Get-SfPublic $route
+        $probeIndex++
+        ConvertTo-Json -InputObject $data -Depth 30 | Set-Content "build/sf-probe-$probeIndex.json" -Encoding utf8
+        [pscustomobject]@{ route=$route; attempts=$script:LastAttempts; count=@($data).Count; keys=($data | Select-Object -First 1).PSObject.Properties.Name -join ',' } | ConvertTo-Json -Compress
+    }
+    return
 }
 $meta=Get-SfPublic "novels/${BookId}?expand=bigNovelCover"
 $dirs=Get-SfPublic "novels/$BookId/dirs?expand=originNeedFireMoney"

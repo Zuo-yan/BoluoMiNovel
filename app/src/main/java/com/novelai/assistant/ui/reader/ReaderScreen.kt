@@ -148,6 +148,7 @@ fun ReaderScreen(
     val chapterIndex by viewModel.chapterIndex.collectAsStateWithLifecycle()
     val currentChapter by viewModel.currentChapter.collectAsStateWithLifecycle()
     val chapterError by viewModel.chapterError.collectAsStateWithLifecycle()
+    val chapterFailureKind by viewModel.chapterFailureKind.collectAsStateWithLifecycle()
     var sfToolsOpen by remember { mutableStateOf(false) }
     val chromeVisible by viewModel.chromeVisible.collectAsStateWithLifecycle()
     val tocOpen by viewModel.tocOpen.collectAsStateWithLifecycle()
@@ -339,7 +340,11 @@ fun ReaderScreen(
                 else {
                     Text(chapterError.orEmpty(), color = Color(palette.text))
                     TextButton(onClick = { viewModel.retryChapter() }) { Text("重新加载") }
-                    Text("需要登录时，请返回菠萝包页登录账号", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                    if (chapterFailureKind == com.novelai.assistant.data.sf.SfFailureKind.AUTH) {
+                        Text("请返回菠萝包页登录账号", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                    } else if (chapterFailureKind == com.novelai.assistant.data.sf.SfFailureKind.SIGNATURE) {
+                        Text("这不是账号封禁提示。请检查设备日期与时间，稍后重试。", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }

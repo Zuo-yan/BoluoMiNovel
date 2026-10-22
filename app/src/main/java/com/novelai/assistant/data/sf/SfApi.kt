@@ -6,6 +6,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import java.security.MessageDigest
@@ -199,6 +200,23 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
     fun clearShelfCache() { embeddedShelves = emptyMap() }
 
     private suspend fun request(path: String, cookie: String = "", body: String? = null,
+        method: String = if (body == null) "GET" else "POST", recovery: Boolean = false): Pair<JsonElement, SfResponse> {
+        // Public reads carry no account session. A transient 417 is a protocol error,
+        // not proof of account risk. Re-sign at most twice, still using the shared queue.
+        val anonymousRead = cookie.isBlank() && body == null && method == "GET" &&
+            (path == "noveltypes" || listOf("novels/", "novel/", "ranks/", "search/", "Chaps/").any { path.startsWith(it) })
+        val attempts = if (anonymousRead) 3 else 1
+        repeat(attempts) { attempt ->
+            try { return requestOnce(path, cookie, body, method, recovery) }
+            catch (e: SfException) {
+                if (e.kind != SfFailureKind.SIGNATURE || attempt == attempts - 1) throw e
+                delay((attempt + 1) * 1_000L)
+            }
+        }
+        error("Unreachable")
+    }
+
+    private suspend fun requestOnce(path: String, cookie: String, body: String?,
         method: String = if (body == null) "GET" else "POST", recovery: Boolean = false): Pair<JsonElement, SfResponse> = guard.request(path, recovery) {
             val nonce = UUID.randomUUID().toString().uppercase()
             val timestamp = System.currentTimeMillis()
@@ -220,6 +238,9 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
             if (response.status in 300..399) throw SfException(SfFailureKind.CLIENT, "服务要求重定向，请检查客户端更新")
             val payload = try { json.parseToJsonElement(response.body).jsonObject }
             catch (_: Exception) {
+                if (Regex("验证码|安全验证|captcha", RegexOption.IGNORE_CASE).containsMatchIn(response.body))
+                    throw SfException(SfFailureKind.RISK, "平台要求安全验证，已停止请求")
+                if (response.status == 417) throw SfException(SfFailureKind.SIGNATURE, SIGNATURE_MESSAGE)
                 throw SfException(when (response.status) { 401 -> SfFailureKind.AUTH; 403 -> SfFailureKind.RISK; else -> SfFailureKind.NETWORK }, "服务未返回可识别的数据，已停止本次操作")
             }
             val status = payload.obj("status")
@@ -231,11 +252,15 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
                 throw SfException(SfFailureKind.RISK, "平台要求安全验证，已停止请求")
             if (status.text("errorCode") == "507") throw SfException(SfFailureKind.CLIENT, "菠萝包拒绝了当前客户端标识（507），接口适配需要更新")
             if (code == 429) throw SfException(SfFailureKind.RATE_LIMIT, "请求被限流", response.retryAfterMillis)
-            if (code == 417 || response.status == 417) throw SfException(SfFailureKind.SIGNATURE, "签名校验被拒绝，已停止请求")
+            if (code == 417 || response.status == 417) throw SfException(SfFailureKind.SIGNATURE, SIGNATURE_MESSAGE)
             if (code == 401 || response.status == 401) throw SfException(SfFailureKind.AUTH, if (body == null) "登录已失效，请重新登录" else "登录未成功，请检查账号密码；若需安全验证，请先到官方 App 完成")
             if (code == 403 || response.status == 403) throw SfException(if (path.startsWith("Chaps/") && Regex("购买|订阅|未购|未订|权限").containsMatchIn(serverMessage)) SfFailureKind.UNPURCHASED else SfFailureKind.RISK, "账号无权读取此内容，请在官方 App 确认权限或安全验证")
             if (code !in 200..299 || response.status !in 200..299) throw SfException(if (code in 500..599) SfFailureKind.NETWORK else SfFailureKind.INVALID, "菠萝包接口返回状态 $code，请稍后重试")
             (payload["data"] ?: JsonNull) to response
+    }
+
+    private companion object {
+        const val SIGNATURE_MESSAGE = "菠萝包暂未接受请求签名，请稍后重新加载（417）"
     }
 
     suspend fun login(username: String, password: String): Pair<SfAccount, String> {
@@ -374,9 +399,22 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
     }
 
     suspend fun browseByMultiTags(sysTagIds: List<Int>, page: Int = 1, size: Int = 20): List<SfSearchResult> {
+        return browseFiltered(SfBrowseFilter(tagIds = sysTagIds.toSet()), page, size)
+    }
+
+    suspend fun fetchCategories(): List<SfCategory> = request("noveltypes").first.jsonArray.mapNotNull {
+        val category = it as? JsonObject ?: return@mapNotNull null
+        val id = category.text("typeId").toIntOrNull() ?: return@mapNotNull null
+        category.text("typeName").takeIf { name -> name.isNotBlank() }?.let { name -> SfCategory(id, name) }
+    }
+
+    suspend fun browseFiltered(filter: SfBrowseFilter, page: Int = 1, size: Int = 20, sort: String = "viewtimes"): List<SfSearchResult> {
+        require(filter.categoryId >= 0 && filter.tagIds.all { it > 0 } && page > 0 && size in 1..50)
+        require(sort in listOf("viewtimes", "updatetime"))
         val p0 = (page - 1).coerceAtLeast(0)
-        val idsStr = sysTagIds.joinToString(",")
-        val route = "novels/0/sysTags/novels?sysTagId=$idsStr&page=$p0&size=$size&expand=bigNovelCover,sysTags,tags,intro"
+        val ids = filter.tagIds.sorted().joinToString(",")
+        val tags = if (ids.isEmpty()) "" else "&systagids=$ids"
+        val route = "novels/${filter.categoryId}/sysTags/novels?page=$p0&size=$size&sort=$sort$tags&expand=bigNovelCover,sysTags,tags,intro"
         val data = request(route).first
         return SfProtocol.parseSearchResults(data)
     }
@@ -405,6 +443,16 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
             ?: exp.text("ticket").toIntOrNull()
             ?: 0
         return SfWealth(fireMoney, coupons, vipLevel, tickets)
+    }
+
+    suspend fun newRecommendations(page: Int = 1, size: Int = 20): List<SfSearchResult> {
+        require(page > 0 && size in 1..50)
+        return SfDiscoveryParser.recommendations(request("novels/specialpushs?pushNames=newpush&page=${page - 1}&size=$size&expand=bigNovelCover,sysTags,intro").first)
+    }
+
+    suspend fun relatedBookLists(id: String, page: Int = 1, size: Int = 20): List<SfBookList> {
+        require(id.matches(Regex("\\d+")) && page > 0 && size in 1..50)
+        return SfDiscoveryParser.bookLists(request("novel/$id/bookList?page=${page - 1}&size=$size").first)
     }
 
     suspend fun sign(cookie: String): SfSignResult {

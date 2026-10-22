@@ -47,10 +47,108 @@ class SfIntegrationTest {
         catch (e: SfException) { assertEquals(SfFailureKind.INVALID, e.kind) }
     }
 
+    @Test fun categoryAndMultipleTagsUseRealFilterParametersOnEveryPage() = runBlocking {
+        val paths = mutableListOf<String>()
+        val api = SfApi(SfTransport { path, _, _ -> paths += path; ok("[]") }, device)
+        val tags = SfBrowseFilter(tagIds = setOf(58, 22))
+        val combined = tags.copy(categoryId = 21)
+        api.browseFiltered(combined, 1)
+        api.browseFiltered(combined, 2)
+        api.browseFiltered(combined.copy(tagIds = combined.tagIds - 58), 1, sort = "updatetime")
+        api.browseFiltered(combined.copy(tagIds = emptySet()), 1)
+        assertTrue(paths[0].startsWith("novels/21/sysTags/novels?"))
+        assertTrue(paths[0].contains("systagids=22,58"))
+        assertTrue(paths[0].contains("page=0"))
+        assertTrue(paths[1].contains("page=1"))
+        assertTrue(paths[1].contains("systagids=22,58"))
+        assertTrue(paths[2].contains("systagids=22&"))
+        assertTrue(paths[2].contains("sort=updatetime"))
+        assertTrue(paths[3].startsWith("novels/21/"))
+        assertFalse(paths[3].contains("systagids="))
+        assertTrue(paths.none { it.startsWith("search/") || it.contains("sysTagId=") })
+        assertEquals(setOf(58, 22), tags.tagIds)
+        assertEquals(0, tags.categoryId)
+    }
+
+    @Test fun categoryNamesAndIdsComeFromPlatformMetadata() = runBlocking {
+        val api = SfApi(SfTransport { path, _, _ ->
+            assertEquals("noveltypes", path)
+            ok("""[{"typeId":21,"typeName":"魔幻"},{"typeId":24,"typeName":"科幻"}]""")
+        }, device)
+        assertEquals(listOf(SfCategory(21, "魔幻"), SfCategory(24, "科幻")), api.fetchCategories())
+    }
+
     @Test fun signatureRejectionStopsImmediately() = runBlocking {
         var calls = 0
         val api = SfApi(SfTransport { _, _, _ -> calls++; SfResponse(417, """{"status":{"httpCode":417}}""") }, device)
         try { api.inspect("test"); fail() } catch (e: SfException) { assertEquals(SfFailureKind.SIGNATURE, e.kind) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun anonymousSignatureRejectionRetriesWithFreshHeadersAndNoCookie() = runBlocking {
+        val security = mutableListOf<String>()
+        val api = SfApi(SfTransport { _, headers, _ ->
+            assertNull(headers["Cookie"])
+            security += headers.getValue("sfsecurity")
+            if (security.size < 3) SfResponse(200, """{"status":{"httpCode":417}}""")
+            else ok("""{"content":"免费正文"}""")
+        }, device)
+        assertEquals("免费正文", api.chapter("123", "unused-private-cookie", false) { it })
+        assertEquals(3, security.size)
+        assertEquals(3, security.distinct().size)
+        assertFalse(api.guard.state.value.blocked)
+    }
+
+    @Test fun anonymousSignatureRetriesAreBoundedAndDoNotDemandLogin() = runBlocking {
+        var calls = 0
+        val api = SfApi(SfTransport { _, _, _ -> calls++; SfResponse(417, "") }, device)
+        try { api.chapter("123", "", false) { it }; fail() }
+        catch (e: SfException) {
+            assertEquals(SfFailureKind.SIGNATURE, e.kind)
+            assertFalse(e.message!!.contains("登录"))
+            assertFalse(e.message!!.contains("已停止请求"))
+        }
+        assertEquals(3, calls)
+        assertFalse(api.guard.state.value.blocked)
+    }
+
+    @Test fun paidSignatureRejectionAndLoginAreNeverAutomaticallyRetried() = runBlocking {
+        var calls = 0
+        val api = SfApi(SfTransport { _, _, _ -> calls++; SfResponse(417, """{"status":{"httpCode":417}}""") }, device)
+        try { api.chapter("123", "private-cookie", true) { it }; fail() }
+        catch (e: SfException) { assertEquals(SfFailureKind.SIGNATURE, e.kind) }
+        assertEquals(1, calls)
+        try { api.login("test", "test-password"); fail() }
+        catch (e: SfException) { assertEquals(SfFailureKind.SIGNATURE, e.kind) }
+        assertEquals(2, calls)
+    }
+
+    @Test fun anonymousRetriesStopAtRiskOrRateLimitOrClientRejection() = runBlocking {
+        for ((response, kind) in listOf(
+            SfResponse(422, """{"status":{"httpCode":422,"errorCode":1148}}""") to SfFailureKind.RISK,
+            SfResponse(429, "<html>rate limit</html>", retryAfterMillis = 60_000) to SfFailureKind.RATE_LIMIT,
+            SfResponse(417, "<html>captcha required</html>") to SfFailureKind.RISK,
+            SfResponse(401, """{"status":{"httpCode":401,"errorCode":507}}""") to SfFailureKind.CLIENT
+        )) {
+            var calls = 0
+            val api = SfApi(SfTransport { _, _, _ ->
+                calls++
+                if (calls == 1) SfResponse(417, """{"status":{"httpCode":417}}""") else response
+            }, device)
+            try { api.chapter("123", "", false) { it }; fail() }
+            catch (e: SfException) { assertEquals(kind, e.kind) }
+            assertEquals(2, calls)
+        }
+    }
+
+    @Test fun cancellationDuringAnonymousSignatureBackoffPreventsRetry() = runBlocking {
+        var calls = 0
+        val api = SfApi(SfTransport { _, _, _ ->
+            calls++
+            SfResponse(417, """{"status":{"httpCode":417}}""")
+        }, device)
+        val result = kotlinx.coroutines.withTimeoutOrNull(200) { api.chapter("123", "", false) { it } }
+        assertNull(result)
         assertEquals(1, calls)
     }
 

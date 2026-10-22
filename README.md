@@ -6,12 +6,22 @@
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-blue.svg?style=flat-square" alt="UI" />
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean%20Architecture-orange.svg?style=flat-square" alt="Architecture" />
   <img src="https://img.shields.io/badge/BYOK-Privacy%20First-red.svg?style=flat-square" alt="BYOK" />
-  <img src="https://img.shields.io/badge/Latest%20Version-v0.28.0-success.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Latest%20Version-v0.29.0-success.svg?style=flat-square" alt="Version" />
 </p>
 
 ---
 
 ## 📖 项目简介
+
+### v0.29.0（开发中）：阅读与组合筛选修复，新书推荐和相关书单
+
+- 免费章节、目录和搜索等匿名只读请求遇到 417 时，最多尝试三次，每次重新签名，重试前分别等待 1 秒、2 秒；不携带账号 Cookie，也不将签名错误记为账号风控。
+- 登录、账号请求和付费章节不自动重试；遇到安全验证、限流或客户端标识拒绝立即结束本次操作。
+- 阅读器只在确实需要登录时显示登录引导；签名失败显示对应说明，保留手动重新加载。
+- 分类和作品标签改用真实筛选接口，支持分类与多个标签同时生效；选择、移除标签、刷新和翻页均保留其余条件，不再将标签拼成搜索词。分类列表从平台元数据加载。
+- 修复筛选选项加载与首屏请求相互取消、切换条件后旧分页结果混入、分页失败反复自动请求的问题；筛选状态由 ViewModel 统一保存。
+- 新增匿名可用的新书推荐页和作品详情「相关书单」入口，支持刷新、分页及点开作品；相关书单区分平台标注的总书数与接口实际附带的预览作品数，明确提示非完整书单。
+- 本次先修复代码与回归测试，暂不打包 APK。
 
 ### v0.28.0：精彩书评读者讨论区与云端书架端点彻底修复
 

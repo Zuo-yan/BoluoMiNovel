@@ -37,6 +37,7 @@ fun SfBookDetailScreen(
     onBack: () -> Unit,
     onOpenReader: (String, Int) -> Unit,
     onOpenCatalog: (String) -> Unit,
+    onOpenRelatedLists: (String) -> Unit,
     viewModel: SfViewModel = hiltViewModel()
 ) {
     LaunchedEffect(bookId) {
@@ -393,6 +394,12 @@ fun SfBookDetailScreen(
                             }
                             Icon(Icons.Rounded.ChevronRight, "查看完整目录")
                         }
+                    }
+                }
+
+                if (isSfBook) item {
+                    OutlinedButton(onClick = { onOpenRelatedLists(bookId) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("看看收录这部作品的相关书单")
                     }
                 }
 

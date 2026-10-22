@@ -71,6 +71,8 @@ object Routes {
     const val SF_CATALOG = "sf_catalog/{bookId}"
     const val SF_DETAIL = "sf_detail/{bookId}"
     const val SF_BROWSE = "sf_browse"
+    const val SF_RECOMMENDATIONS = "sf_recommendations"
+    const val SF_RELATED_LISTS = "sf_related_lists/{bookId}"
     const val ASSISTANT = "assistant"
     const val SETTINGS = "settings"
     const val LISTENING = "listening"
@@ -86,6 +88,7 @@ object Routes {
     fun readerAt(bookId: String, chapterIndex: Int) = "reader/$bookId?chapter=$chapterIndex"
     fun sfDetail(bookId: String) = "sf_detail/$bookId"
     fun sfBrowse() = "sf_browse"
+    fun sfRelatedLists(bookId: String) = "sf_related_lists/$bookId"
     fun generate(bookId: String, chapterId: String, mode: String) =
         "generate/$bookId/$chapterId?mode=$mode"
     fun tree(bookId: String) = "tree/$bookId"
@@ -207,7 +210,8 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         onOpenBook = { navController.navigate(Routes.sfDetail(it)) },
                         onOpenCatalog = { navController.navigate("sf_catalog/$it") },
                         onOpenFanqie = { navController.navigate(Routes.FANQIE) },
-                        onOpenBrowse = { navController.navigate(Routes.sfBrowse()) }
+                        onOpenBrowse = { navController.navigate(Routes.sfBrowse()) },
+                        onOpenRecommendations = { navController.navigate(Routes.SF_RECOMMENDATIONS) }
                     )
                 }
                 composable(Routes.FANQIE) { com.novelai.assistant.ui.discover.FanqieScreen(onBack = { navController.popBackStack() }) }
@@ -227,8 +231,19 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         },
                         onOpenCatalog = { bookId ->
                             navController.navigate("sf_catalog/$bookId")
-                        }
+                        },
+                        onOpenRelatedLists = { navController.navigate(Routes.sfRelatedLists(it)) }
                     )
+                }
+                composable(Routes.SF_RECOMMENDATIONS) {
+                    com.novelai.assistant.ui.discover.SfExploreScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenBookDetail = { navController.navigate(Routes.sfDetail(it)) })
+                }
+                composable(Routes.SF_RELATED_LISTS, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) {
+                    com.novelai.assistant.ui.discover.SfExploreScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenBookDetail = { navController.navigate(Routes.sfDetail(it)) })
                 }
                 composable(Routes.SF_CATALOG, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) { entry ->
                     val id = entry.arguments?.getString("bookId").orEmpty()

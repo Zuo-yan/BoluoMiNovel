@@ -39,6 +39,7 @@ fun SfScreen(
     onOpenCatalog: (String) -> Unit,
     onOpenFanqie: () -> Unit,
     onOpenBrowse: () -> Unit,
+    onOpenRecommendations: () -> Unit,
     viewModel: SfViewModel = hiltViewModel()
 ) {
     LaunchedEffect(viewModel) { viewModel.restoreSession() }
@@ -91,6 +92,12 @@ fun SfScreen(
                     Text(if (account == null) "登录后查看收藏，阅读已购章节" else "书架已连接 · 阅读进度保存在本机", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(Icons.Rounded.ChevronRight, "账号")
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledTonalButton(onOpenRecommendations, modifier = Modifier.weight(1f)) { Text("新书推荐") }
+                OutlinedButton(onOpenBrowse, modifier = Modifier.weight(1f)) { Text("分类找书") }
             }
         }
         if (safety.blocked) item { Box(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { SfSafetyNotice(viewModel) { login = true } } }
