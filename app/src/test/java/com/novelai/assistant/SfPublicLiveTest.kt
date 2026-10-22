@@ -66,5 +66,22 @@ class SfPublicLiveTest {
         assertTrue(lists.any { it.books.isNotEmpty() })
         assertTrue(lists.all { it.totalBooks >= it.books.size })
         println("PASS anonymous recommendations=${recommendations.size}, relatedLists=${lists.size}, previewBooks=${lists.sumOf { it.books.size }}")
+
+        val authorClient = SfAuthorClient(
+            io.ktor.client.HttpClient(io.ktor.client.engine.okhttp.OkHttp)
+        )
+        for (novelId in listOf("388081", "540307")) {
+            val detail = api.novelDetail(novelId)
+            val portfolio = authorClient.portfolio(novelId)
+            assertTrue(portfolio.works.size >= 2)
+            assertTrue(portfolio.works.any { it.id == novelId })
+            println("PASS author portfolio sourceBook=$novelId name=${portfolio.name} works=${portfolio.works.size}")
+        }
+        val popularCatalog = api.catalog("540307")
+        for (sample in popularCatalog.chapters.filter { !it.paid }.take(3)) {
+            val comments = api.paragraphComments(sample.id, size = 5)
+            assertTrue(comments.all { it.id.matches(Regex("\\d+")) && it.content.isNotBlank() })
+            println("PASS chapter tsukkomi chapter=${sample.id} title=${sample.title} count=${comments.size}")
+        }
     }
 }

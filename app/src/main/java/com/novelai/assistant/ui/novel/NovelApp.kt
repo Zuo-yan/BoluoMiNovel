@@ -71,8 +71,12 @@ object Routes {
     const val SF_CATALOG = "sf_catalog/{bookId}"
     const val SF_DETAIL = "sf_detail/{bookId}"
     const val SF_BROWSE = "sf_browse"
+    const val SF_COMICS = "sf_comics"
+    const val SF_COMIC = "sf_comic"
+    const val SF_COMIC_READER = "sf_comic_reader/{slug}"
     const val SF_RECOMMENDATIONS = "sf_recommendations"
     const val SF_RELATED_LISTS = "sf_related_lists/{bookId}"
+    const val SF_AUTHOR = "sf_author/{bookId}?name={name}"
     const val ASSISTANT = "assistant"
     const val SETTINGS = "settings"
     const val LISTENING = "listening"
@@ -88,7 +92,11 @@ object Routes {
     fun readerAt(bookId: String, chapterIndex: Int) = "reader/$bookId?chapter=$chapterIndex"
     fun sfDetail(bookId: String) = "sf_detail/$bookId"
     fun sfBrowse() = "sf_browse"
+    fun sfComics() = "sf_comics"
+    fun sfComic(slug: String) = "sf_comic_reader/$slug"
     fun sfRelatedLists(bookId: String) = "sf_related_lists/$bookId"
+    fun sfAuthor(bookId: String, name: String) =
+        "sf_author/$bookId?name=${android.net.Uri.encode(name)}"
     fun generate(bookId: String, chapterId: String, mode: String) =
         "generate/$bookId/$chapterId?mode=$mode"
     fun tree(bookId: String) = "tree/$bookId"
@@ -210,7 +218,8 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         onOpenBook = { navController.navigate(Routes.sfDetail(it)) },
                         onOpenCatalog = { navController.navigate("sf_catalog/$it") },
                         onOpenFanqie = { navController.navigate(Routes.FANQIE) },
-                        onOpenBrowse = { navController.navigate(Routes.sfBrowse()) },
+                        onOpenNovelBrowse = { navController.navigate(Routes.sfBrowse()) },
+                        onOpenComics = { navController.navigate(Routes.sfComics()) },
                         onOpenRecommendations = { navController.navigate(Routes.SF_RECOMMENDATIONS) }
                     )
                 }
@@ -220,6 +229,16 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         onBack = { navController.popBackStack() },
                         onOpenBookDetail = { navController.navigate(Routes.sfDetail(it)) }
                     )
+                }
+                composable(Routes.SF_COMICS) {
+                    com.novelai.assistant.ui.discover.SfComicBrowseScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenComic = { navController.navigate(Routes.sfComic(it)) }
+                    )
+                }
+                composable(Routes.SF_COMIC_READER, arguments = listOf(navArgument("slug") { type = NavType.StringType })) {
+                    com.novelai.assistant.ui.discover.SfComicReaderScreen(
+                        onBack = { navController.popBackStack() })
                 }
                 composable(Routes.SF_DETAIL, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) { entry ->
                     val id = entry.arguments?.getString("bookId").orEmpty()
@@ -232,7 +251,19 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         onOpenCatalog = { bookId ->
                             navController.navigate("sf_catalog/$bookId")
                         },
-                        onOpenRelatedLists = { navController.navigate(Routes.sfRelatedLists(it)) }
+                        onOpenRelatedLists = { navController.navigate(Routes.sfRelatedLists(it)) },
+                        onOpenAuthor = { id, name -> navController.navigate(Routes.sfAuthor(id, name)) }
+                    )
+                }
+                composable(Routes.SF_AUTHOR, arguments = listOf(
+                    navArgument("bookId") { type = NavType.StringType },
+                    navArgument("name") { type = NavType.StringType; defaultValue = "" }
+                )) { entry ->
+                    com.novelai.assistant.ui.discover.SfAuthorScreen(
+                        bookId = entry.arguments?.getString("bookId").orEmpty(),
+                        authorName = entry.arguments?.getString("name").orEmpty(),
+                        onBack = { navController.popBackStack() },
+                        onOpenBook = { navController.navigate(Routes.sfDetail(it)) }
                     )
                 }
                 composable(Routes.SF_RECOMMENDATIONS) {

@@ -70,6 +70,10 @@ class SfViewModel @Inject constructor(
     // 评论状态
     val comments = MutableStateFlow<List<SfComment>>(emptyList())
     val isCommentsLoading = MutableStateFlow(false)
+    val authorNovels = MutableStateFlow<List<SfSearchResult>>(emptyList())
+    val isAuthorLoading = MutableStateFlow(false)
+    val authorError = MutableStateFlow<String?>(null)
+    val authorPortfolio = MutableStateFlow<SfAuthorPortfolio?>(null)
 
     // 分页加载状态
     val hasMoreBrowse = MutableStateFlow(true)
@@ -228,6 +232,44 @@ class SfViewModel @Inject constructor(
             } finally {
                 isCommentsLoading.value = false
             }
+        }
+    }
+
+    fun loadAuthor(bookId: String) {
+        if (!bookId.matches(Regex("\\d+"))) {
+            authorNovels.value = emptyList(); authorPortfolio.value = null
+            authorError.value = "此作品没有可用于读取作者作品集的书号"; return
+        }
+        authorNovels.value = emptyList(); authorPortfolio.value = null
+        authorError.value = null; isAuthorLoading.value = true
+        viewModelScope.launch {
+            try {
+                val portfolio = session.authorPortfolio(bookId)
+                authorPortfolio.value = portfolio
+                // The public page carries titles and stable book IDs. The App detail
+                // endpoint supplies cover/metadata; one malformed work does not erase others.
+                authorNovels.value = coroutineScope {
+                    portfolio.works.map { work ->
+                        async {
+                            runCatching { session.novelDetail(work.id) }.getOrNull()?.let { detail ->
+                                SfSearchResult(
+                                    id = work.id,
+                                    title = detail.title.ifBlank { work.title },
+                                    author = detail.author.ifBlank { portfolio.name },
+                                    cover = detail.cover,
+                                    intro = detail.intro,
+                                    tags = detail.tags,
+                                    point = detail.point,
+                                    markCount = detail.markCount,
+                                    viewTimes = detail.viewTimes
+                                )
+                            } ?: SfSearchResult(work.id, work.title, portfolio.name, null)
+                        }
+                    }.awaitAll().distinctBy { it.id }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { authorError.value = e.message ?: "作者作品加载失败" }
+            finally { isAuthorLoading.value = false }
         }
     }
 

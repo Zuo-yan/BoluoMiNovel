@@ -59,6 +59,17 @@ data class SfBookDetail(
     val latestChapterTitle: String = "",
     val totalChapters: Int = 0
 )
+data class SfParagraphComment(
+    val id: String,
+    val row: Int,
+    val displayName: String,
+    val avatar: String?,
+    val content: String,
+    val createTime: String,
+    val favCount: Int = 0,
+    val replyNum: Int = 0,
+    val roleName: String = ""
+)
 data class SfSignResult(val success: Boolean, val message: String)
 data class SfShelfBook(val id: String, val title: String, val author: String, val cover: String?, val shelf: String)
 data class SfRemoteChapter(val id: String, val title: String, val paid: Boolean, val volume: String)
@@ -192,6 +203,59 @@ object SfProtocol {
         val list = if (data is JsonArray) data else (data as? JsonObject)?.array("novels") ?: emptyList()
         return list.mapNotNull { (it as? JsonObject)?.let { obj -> parseSearchResult(obj) } }
     }
+
+    fun parseParagraphComments(data: JsonElement): List<SfParagraphComment> {
+        val list = when (data) {
+            is JsonArray -> data
+            is JsonObject -> data.array("tsukkomis")
+                .ifEmpty { data.array("items") }
+            else -> throw SfException(SfFailureKind.INVALID, "章节间贴返回格式已变化")
+        }
+        if (list.any { it !is JsonObject }) throw SfException(SfFailureKind.INVALID, "章节间贴条目格式已变化")
+        return list.map { item ->
+            val obj = item.jsonObject
+            val id = obj.text("tsukkomiId").ifBlank { obj.text("id") }
+            val content = obj.text("content").ifBlank { obj.text("text") }.let(::plainComment)
+            val user = obj["postUser"] as? JsonObject
+                ?: obj["user"] as? JsonObject
+                ?: obj.obj("expand")["user"] as? JsonObject
+            if (!id.matches(Regex("\\d+")) || content.isBlank()) {
+                throw SfException(SfFailureKind.INVALID, "章节间贴条目缺少编号或正文")
+            }
+            val row = obj.text("row").toIntOrNull()
+                ?: obj.text("paraIndex").toIntOrNull()
+                ?: obj.text("paragraphIndex").toIntOrNull()
+                ?: obj.text("chapParaIndex").toIntOrNull()
+                ?: 0
+            SfParagraphComment(
+                id = id,
+                row = row,
+                displayName = user?.text("nickName").orEmpty()
+                    .ifBlank { obj.text("displayName") }
+                    .ifBlank { "菠萝包读者" },
+                avatar = user?.text("avatar").orEmpty()
+                    .ifBlank { obj.text("avatar") }
+                    .takeIf { it.isNotBlank() },
+                content = content,
+                createTime = obj.text("postDate")
+                    .ifBlank { obj.text("createTime") }
+                    .replace("T", " ")
+                    .substringBefore('.'),
+                favCount = obj.text("favNum").toIntOrNull()
+                    ?: obj.text("favCount").toIntOrNull()
+                    ?: obj.text("likeCount").toIntOrNull()
+                    ?: 0,
+                replyNum = obj.text("replyNum").toIntOrNull() ?: 0,
+                roleName = obj.text("roleName").ifBlank { obj.text("title") }
+            )
+        }
+    }
+
+    private fun plainComment(raw: String): String =
+        org.jsoup.Jsoup.parse(
+            raw.replace(Regex("\\[em:sfgirl:\\d+]", RegexOption.IGNORE_CASE), "[表情]")
+                .replace(Regex("<br\\s*/?>|</p>", RegexOption.IGNORE_CASE), "\n")
+        ).wholeText().trim()
 }
 
 class SfApi(private val transport: SfTransport, private val device: String, val guard: SfRequestGuard = SfRequestGuard()) {
@@ -340,7 +404,7 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
 
     suspend fun novelDetail(id: String): SfBookDetail {
         require(id.matches(Regex("\\d+"))) { "无效书号" }
-        val meta = request("novels/$id?expand=bigNovelCover,tags,sysTags,intro,typeName,authorName,point,ticket,fav").first.jsonObject
+        val meta = request("novels/$id?expand=bigNovelCover,tags,sysTags,intro,typeName,authorName,author,point,ticket,fav").first.jsonObject
         val exp = meta.obj("expand")
         val title = meta.text("novelName").ifBlank { meta.text("name") }.ifBlank { "未命名作品" }
         val author = meta.text("authorName").ifBlank { meta.text("author") }
@@ -376,8 +440,17 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
             ticketCount = ticketCount,
             point = point,
             lastUpdateTime = lastUpdateTime,
-            latestChapterTitle = latestChapterTitle
+            latestChapterTitle = latestChapterTitle,
         )
+    }
+
+    suspend fun paragraphComments(chapterId: String, page: Int = 1, size: Int = 20,
+                                  sort: String = "hot"): List<SfParagraphComment> {
+        require(chapterId.matches(Regex("\\d+")) && page > 0 && size in 1..50)
+        val p0 = page - 1
+        val order = if (sort == "new") "addtime" else "hot"
+        val data = request("chaps/0/$chapterId/tsukkomis?page=$p0&size=$size&sort=$order").first
+        return SfProtocol.parseParagraphComments(data)
     }
 
     suspend fun fetchOfficialTags(): List<SfSysTag> {

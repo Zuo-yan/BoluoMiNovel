@@ -38,7 +38,8 @@ fun SfScreen(
     onOpenBook: (String) -> Unit,
     onOpenCatalog: (String) -> Unit,
     onOpenFanqie: () -> Unit,
-    onOpenBrowse: () -> Unit,
+    onOpenNovelBrowse: () -> Unit,
+    onOpenComics: () -> Unit,
     onOpenRecommendations: () -> Unit,
     viewModel: SfViewModel = hiltViewModel()
 ) {
@@ -71,7 +72,7 @@ fun SfScreen(
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 28.dp)) {
         item {
             LargeTitleHeader("菠萝包", subtitle = "好故事，接着读") {
-                IconButton({ onOpenBrowse() }) { Icon(Icons.Rounded.Search, "分类找书") }
+                IconButton(onOpenNovelBrowse) { Icon(Icons.Rounded.Search, "搜索和分类找小说") }
                 Box {
                     IconButton({ more = true }) { Icon(Icons.Rounded.MoreHoriz, "更多") }
                     DropdownMenu(more, { more = false }) {
@@ -97,7 +98,7 @@ fun SfScreen(
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 FilledTonalButton(onOpenRecommendations, modifier = Modifier.weight(1f)) { Text("新书推荐") }
-                OutlinedButton(onOpenBrowse, modifier = Modifier.weight(1f)) { Text("分类找书") }
+                OutlinedButton(onOpenComics, modifier = Modifier.weight(1f)) { Text("漫画") }
             }
         }
         if (safety.blocked) item { Box(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { SfSafetyNotice(viewModel) { login = true } } }
@@ -157,7 +158,7 @@ fun SfScreen(
                 Icon(Icons.Rounded.MenuBook, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = .7f), modifier = Modifier.size(46.dp))
                 Text(if (account == null) "把喜欢的故事带进来" else "这个书架还没有作品", style = MaterialTheme.typography.titleMedium)
                 Text("也可以通过书号或链接直接打开一本书。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton({ onOpenBrowse() }) { Text("分类找书或输入书号") }
+                OutlinedButton({ onOpenNovelBrowse() }) { Text("搜索或分类找小说") }
             }
         }
         if (task.chapterIds.isNotEmpty() && (task.running || task.paused || task.failures.isNotEmpty())) item {

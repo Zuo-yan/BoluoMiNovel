@@ -24,7 +24,8 @@ class BookRepository @Inject constructor(
     private val bookDao: BookDao,
     private val chapterDao: ChapterDao,
     private val importManager: BookImportManager,
-    private val sfLibrary: com.novelai.assistant.data.sf.SfLibraryRepository
+    private val sfLibrary: com.novelai.assistant.data.sf.SfLibraryRepository,
+    private val sfSession: com.novelai.assistant.data.sf.SfSessionRepository
 ) {
     fun observeBooks(): Flow<List<BookEntity>> = bookDao.observeAll()
     fun observeBook(id: String): Flow<BookEntity?> = bookDao.observeById(id)
@@ -35,6 +36,8 @@ class BookRepository @Inject constructor(
     suspend fun getChapters(bookId: String): List<ChapterEntity> = chapterDao.getByBook(bookId)
     suspend fun getChapter(id: String): ChapterEntity? = chapterDao.getById(id)
     suspend fun readableChapter(id: String): ChapterEntity = sfLibrary.readable(id)
+    suspend fun remoteParagraphComments(chapterId: String, sort: String) =
+        sfSession.paragraphComments(chapterId, sort = sort)
 
     suspend fun import(uri: Uri): BookImportManager.ImportResult = importManager.importFromUri(uri)
 

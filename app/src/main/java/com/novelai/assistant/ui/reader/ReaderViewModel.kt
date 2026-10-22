@@ -93,6 +93,19 @@ class ReaderViewModel @Inject constructor(
 
     private val _quotedParaIndex = MutableStateFlow<Int?>(null)
     val quotedParaIndex: StateFlow<Int?> = _quotedParaIndex.asStateFlow()
+    private val _paragraphComments = MutableStateFlow<List<com.novelai.assistant.data.sf.SfParagraphComment>>(emptyList())
+    val paragraphComments = _paragraphComments.asStateFlow()
+    private val _paragraphCommentsLoading = MutableStateFlow(false)
+    val paragraphCommentsLoading = _paragraphCommentsLoading.asStateFlow()
+    private val _paragraphCommentsError = MutableStateFlow<String?>(null)
+    val paragraphCommentsError = _paragraphCommentsError.asStateFlow()
+    private val _paragraphCommentsSort = MutableStateFlow("hot")
+    val paragraphCommentsSort = _paragraphCommentsSort.asStateFlow()
+    private val _paragraphCommentsOpen = MutableStateFlow(false)
+    val paragraphCommentsOpen = _paragraphCommentsOpen.asStateFlow()
+    private val _paragraphCommentsQuote = MutableStateFlow("")
+    val paragraphCommentsQuote = _paragraphCommentsQuote.asStateFlow()
+    private var paragraphCommentsJob: Job? = null
 
     // 目录树（分支缩进）
     val tocItems: StateFlow<List<TocItem>> =
@@ -419,6 +432,41 @@ class ReaderViewModel @Inject constructor(
         _quotedParaIndex.value = null
     }
 
+    fun openParagraphComments(
+        sort: String = _paragraphCommentsSort.value,
+        quote: String = _paragraphCommentsQuote.value
+    ) {
+        val chapter = currentChapter.value ?: return
+        _paragraphCommentsQuote.value = quote
+        _paragraphCommentsSort.value = sort
+        _paragraphCommentsOpen.value = true
+        _paragraphCommentsLoading.value = true
+        _paragraphCommentsError.value = null
+        paragraphCommentsJob?.cancel()
+        val remoteId = sfTsukkomiChapterId(chapter.id, chapter.remoteId)
+        if (remoteId == null) {
+            _paragraphCommentsLoading.value = false
+            _paragraphCommentsError.value = "本地章节没有可读取的菠萝包间贴"
+            return
+        }
+        paragraphCommentsJob = viewModelScope.launch {
+            try {
+                val remote = bookRepository.remoteParagraphComments(remoteId, sort)
+                _paragraphComments.value = remote
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                _paragraphComments.value = emptyList()
+                _paragraphCommentsError.value = e.message ?: "章节间贴加载失败"
+            } finally { _paragraphCommentsLoading.value = false }
+        }
+    }
+
+    fun closeParagraphComments() {
+        paragraphCommentsJob?.cancel()
+        _paragraphCommentsOpen.value = false
+        _paragraphCommentsLoading.value = false
+    }
+
     fun playFromQuotedParagraph() {
         val idx = _quotedParaIndex.value ?: 0
         clearQuote()
@@ -518,3 +566,8 @@ class ReaderViewModel @Inject constructor(
         }
     }
 }
+
+/** Remote chapter IDs are separate from the local `sf:<book>:<chapter>` primary key. */
+internal fun sfTsukkomiChapterId(localId: String, remoteId: String?): String? =
+    remoteId?.takeIf { it.matches(Regex("\\d+")) }
+        ?: localId.takeIf { it.matches(Regex("\\d+")) }

@@ -6,12 +6,32 @@
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-blue.svg?style=flat-square" alt="UI" />
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean%20Architecture-orange.svg?style=flat-square" alt="Architecture" />
   <img src="https://img.shields.io/badge/BYOK-Privacy%20First-red.svg?style=flat-square" alt="BYOK" />
-  <img src="https://img.shields.io/badge/Latest%20Version-v0.29.0-success.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Latest%20Version-v0.30.2-success.svg?style=flat-square" alt="Version" />
 </p>
 
 ---
 
 ## 📖 项目简介
+
+### v0.30.2：章节间贴与作者作品集
+
+- 阅读器长按正文可选择「本章间贴」，展示官方公开接口中的真实读者昵称、角色称号、正文、时间、点赞和回复数，并支持最热与最新切换。
+- 间贴按章节读取，引用框只标记用户当前长按的阅读位置；官方返回的 `row` 与本地分页不存在可验证的一一映射，因此界面不声称交互精确到该句。
+- 书籍详情的作者入口改为读取官方移动网页中的“作者作品集”，从真实书号逐本补齐现有 App 详情数据；接口格式变化和空作品集分别提示，不伪造作者作品。
+- 吐槽真实字段、作者作品集解析、容器变化与畸形响应均补充单测；匿名实测读取两位作者的 7 部和 10 部作品，以及同书前三章 5、5、4 条间贴。
+
+### v0.30.1：漫画连续阅读与界面整理
+
+- 漫画目录读取站点真实总页数，滚动到底自动追加下一页，修复“全部”分类只显示少量作品的问题。
+- 漫画阅读页只保留底部固定章节导航；章末不再重复显示一组按钮，继续下滑会加载下一话。
+- 切换章节后自动回到新话首张图片；搜索框与按钮统一高度、圆角和对齐方式。
+
+### v0.30.0：漫画入口与原生阅读
+
+- 菠萝包首页原「分类找书」大按钮改为「漫画」，页头恢复「搜索和分类找小说」入口，保留新书推荐和全部小说功能。
+- 接入 SF 漫画网站的分类目录、关键词搜索、作品目录、章节图片列表与原生图片阅读，读取范围仅为当前公开可访问章节。
+- 漫画站点使用独立的公开 Web API，与小说 App 接口分开；请求限制在已确认的漫画域名，不读取或复用小说账号会话。
+- 漫画目录接口只提供当前页作品，分页极限由网站返回决定；图片列表异常、限流和空章节均显示明确状态。
 
 ### v0.29.0：阅读与组合筛选修复，新书推荐和相关书单
 

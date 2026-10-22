@@ -38,6 +38,7 @@ fun SfBookDetailScreen(
     onOpenReader: (String, Int) -> Unit,
     onOpenCatalog: (String) -> Unit,
     onOpenRelatedLists: (String) -> Unit,
+    onOpenAuthor: (String, String) -> Unit,
     viewModel: SfViewModel = hiltViewModel()
 ) {
     LaunchedEffect(bookId) {
@@ -210,12 +211,34 @@ fun SfBookDetailScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             if (author.isNotBlank()) {
-                                Text(
-                                    text = "作者：$author",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Surface(
+                                    onClick = { onOpenAuthor(rawId, author) },
+                                    enabled = isSfBook,
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f),
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = "作者：$author",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        if (isSfBook) {
+                                            Icon(
+                                                Icons.Rounded.ChevronRight,
+                                                "查看作者作品集",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             // 连载状态与类型
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {

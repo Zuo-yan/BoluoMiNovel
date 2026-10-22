@@ -59,4 +59,32 @@ class SfDiscoveryTest {
         try { client.relatedBookLists("../../user"); fail() } catch (_: IllegalArgumentException) { }
         assertEquals(0, calls)
     }
+
+    @Test fun officialAuthorPortfolioKeepsRealBookIdsAndDropsNavigationLinks() {
+        val portfolio = SfAuthorProtocol.parse(
+            """
+            <ul class="book_Author">
+              <li><img src="//rss.sfacg.com/avatar.jpg" width="60"><br>子与我非鱼</li>
+              <li><div><span>作品集：</span><br>
+                <a href="/b/540307/"><span>凤傲天小说里的黄毛反派也想幸福</span></a><br>
+                <a href="/b/128715/"><span>就算穿越成龙族萝莉吾也要开后宫</span></a><br>
+                <a href="/b/540307/"><span>重复作品</span></a>
+              </div><div>请勿转载</div></li>
+            </ul>
+            """
+        )
+        assertEquals("子与我非鱼", portfolio.name)
+        assertEquals("https://rss.sfacg.com/avatar.jpg", portfolio.avatar)
+        assertEquals(listOf("540307", "128715"), portfolio.works.map { it.id })
+        assertEquals("凤傲天小说里的黄毛反派也想幸福", portfolio.works.first().title)
+    }
+
+    @Test fun malformedAuthorPortfolioIsAnErrorNotAnEmptyPortfolio() {
+        try {
+            SfAuthorProtocol.parse("<html><body>没有作者模块</body></html>")
+            fail("A changed page must not look like an author with zero works")
+        } catch (e: SfException) {
+            assertEquals(SfFailureKind.INVALID, e.kind)
+        }
+    }
 }

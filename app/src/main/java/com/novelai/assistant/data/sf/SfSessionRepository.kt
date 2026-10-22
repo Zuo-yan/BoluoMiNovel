@@ -18,6 +18,7 @@ import javax.inject.Singleton
 @Singleton
 class SfSessionRepository @Inject constructor(
     private val api: SfApi,
+    private val authorClient: SfAuthorClient,
     private val storage: SecureStorage,
     @ApplicationContext private val context: Context
 ) {
@@ -95,6 +96,9 @@ class SfSessionRepository @Inject constructor(
     suspend fun search(keyword: String, page: Int = 1) = api.search(keyword, page)
     suspend fun browseRank(sort: String = "hot", page: Int = 1) = api.browseRank(sort, page)
     suspend fun novelDetail(id: String) = api.novelDetail(id)
+    suspend fun authorPortfolio(bookId: String) = authorClient.portfolio(bookId)
+    suspend fun paragraphComments(chapterId: String, page: Int = 1, sort: String = "hot") =
+        api.paragraphComments(chapterId, page, sort = sort)
     suspend fun fetchOfficialTags() = api.fetchOfficialTags()
     suspend fun fetchCategories() = api.fetchCategories()
     suspend fun browseFiltered(filter: SfBrowseFilter, page: Int = 1, sort: String = "viewtimes") = api.browseFiltered(filter, page, sort = sort)

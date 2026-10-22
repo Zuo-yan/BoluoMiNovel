@@ -37,12 +37,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -59,6 +61,7 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
@@ -73,23 +76,28 @@ import androidx.compose.material.icons.rounded.HourglassBottom
 import androidx.compose.material.icons.rounded.Check
 import java.util.Locale
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Text
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -118,10 +126,10 @@ import com.novelai.assistant.data.prefs.ReadingSettings
 import com.novelai.assistant.data.prefs.PageMode
 import com.novelai.assistant.ui.components.OriginBadge
 import com.novelai.assistant.ui.components.SegmentedControl
+import com.novelai.assistant.ui.discover.SfAvatar
 import com.novelai.assistant.ui.theme.ReaderPalettes
 import com.novelai.assistant.ui.theme.readerFontFamily
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -156,6 +164,12 @@ fun ReaderScreen(
     val tocFilter by viewModel.tocFilter.collectAsStateWithLifecycle()
     val tocItems by viewModel.tocItems.collectAsStateWithLifecycle()
     val quotedText by viewModel.quotedText.collectAsStateWithLifecycle()
+    val paragraphCommentsQuote by viewModel.paragraphCommentsQuote.collectAsStateWithLifecycle()
+    val paragraphComments by viewModel.paragraphComments.collectAsStateWithLifecycle()
+    val paragraphCommentsLoading by viewModel.paragraphCommentsLoading.collectAsStateWithLifecycle()
+    val paragraphCommentsError by viewModel.paragraphCommentsError.collectAsStateWithLifecycle()
+    val paragraphCommentsSort by viewModel.paragraphCommentsSort.collectAsStateWithLifecycle()
+    val paragraphCommentsOpen by viewModel.paragraphCommentsOpen.collectAsStateWithLifecycle()
     val ttsSpeaking by viewModel.ttsSpeaking.collectAsStateWithLifecycle()
     val ttsPaused by viewModel.ttsPaused.collectAsStateWithLifecycle()
     val ttsReady by viewModel.ttsReady.collectAsStateWithLifecycle()
@@ -257,7 +271,7 @@ fun ReaderScreen(
         }
     }
 
-    BackHandler(enabled = tocOpen || settingsOpen || timerSheetOpen || quotedText != null || actionChapter != null || renameChapterTarget != null || confirmDeleteChapter != null) {
+    BackHandler(enabled = tocOpen || settingsOpen || timerSheetOpen || quotedText != null || paragraphCommentsOpen || actionChapter != null || renameChapterTarget != null || confirmDeleteChapter != null) {
         when {
             actionChapter != null -> actionChapter = null
             renameChapterTarget != null -> renameChapterTarget = null
@@ -265,6 +279,7 @@ fun ReaderScreen(
             timerSheetOpen -> timerSheetOpen = false
             tocOpen -> viewModel.closeToc()
             settingsOpen -> viewModel.closeSettings()
+            paragraphCommentsOpen -> viewModel.closeParagraphComments()
             quotedText != null -> viewModel.clearQuote()
         }
     }
@@ -670,6 +685,11 @@ fun ReaderScreen(
                         viewModel.clearQuote()
                         onAsk(viewModel.bookId, text, "AI吐槽")
                     }
+                    QuoteChip("本章间贴", Icons.Rounded.Forum, Color(0xFFE91E63)) {
+                        val quote = quotedText.orEmpty()
+                        viewModel.clearQuote()
+                        viewModel.openParagraphComments(quote = quote)
+                    }
                     QuoteChip("选段伴读", Icons.Rounded.AutoAwesome, Color(0xFF7C4DFF)) {
                         val text = quotedText ?: ""
                         viewModel.clearQuote()
@@ -688,6 +708,20 @@ fun ReaderScreen(
                     }
                 }
             }
+        }
+
+        if (paragraphCommentsOpen) {
+            ParagraphCommentsSheet(
+                comments = paragraphComments,
+                loading = paragraphCommentsLoading,
+                error = paragraphCommentsError,
+                sort = paragraphCommentsSort,
+                paragraph = paragraphCommentsQuote,
+                chapterTitle = currentChapter?.title.orEmpty(),
+                onSort = { viewModel.openParagraphComments(it) },
+                onRetry = { viewModel.openParagraphComments(quote = paragraphCommentsQuote) },
+                onDismiss = { viewModel.closeParagraphComments() }
+            )
         }
 
         // ---------- 目录抽屉 ----------
@@ -1039,6 +1073,106 @@ private fun QuoteChip(
                 maxLines = 1,
                 softWrap = false
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ParagraphCommentsSheet(
+    comments: List<com.novelai.assistant.data.sf.SfParagraphComment>,
+    loading: Boolean,
+    error: String?,
+    sort: String,
+    paragraph: String,
+    chapterTitle: String,
+    onSort: (String) -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, dragHandle = { BottomSheetDefaults.DragHandle() }) {
+        Column(Modifier.fillMaxWidth().heightIn(min = 360.dp, max = 680.dp)) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) {
+                        Text("本章间贴", style = MaterialTheme.typography.titleLarge)
+                        if (chapterTitle.isNotBlank()) Text(chapterTitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                    IconButton(onDismiss) { Icon(Icons.Rounded.Close, "关闭") }
+                }
+                if (paragraph.isNotBlank()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            "阅读位置",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) {
+                            Text(paragraph, Modifier.padding(12.dp), maxLines = 3,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf("hot" to "最热", "new" to "最新").forEachIndexed { index, (value, label) ->
+                        SegmentedButton(
+                            selected = sort == value,
+                            onClick = { if (sort != value) onSort(value) },
+                            shape = SegmentedButtonDefaults.itemShape(index, 2),
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) { Text(label) }
+                    }
+                }
+            }
+            HorizontalDivider(Modifier.padding(top = 8.dp))
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp))
+            if (error != null) {
+                Text(error, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error)
+                TextButton(onRetry, Modifier.padding(horizontal = 12.dp)) { Text("重试") }
+            } else if (!loading && comments.isEmpty()) {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Text("本章暂无间贴",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(comments, key = { it.id }) { comment ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.Top) {
+                            SfAvatar(comment.avatar, comment.displayName, Modifier.size(36.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(comment.displayName, style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Medium)
+                                    if (comment.roleName.isNotBlank()) Text(comment.roleName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary)
+                                }
+                                Text(comment.content, style = MaterialTheme.typography.bodyMedium)
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(comment.createTime, style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline)
+                                    Text("赞 ${comment.favCount} · 回复 ${comment.replyNum}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline)
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
+                    }
+                }
+            }
         }
     }
 }

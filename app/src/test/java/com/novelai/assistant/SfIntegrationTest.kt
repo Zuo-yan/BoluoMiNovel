@@ -348,4 +348,45 @@ class SfIntegrationTest {
         val shelfRes = api.addToCloudShelf("test-cookie", "155640")
         assertTrue(shelfRes.success)
     }
+
+    @Test fun realChapterTsukkomiFieldsAreParsedWithoutInventingVip() {
+        val parsed = SfProtocol.parseParagraphComments(
+            Json.parseToJsonElement(
+                """[
+                  {"tsukkomiId":35702792,"row":0,"favNum":27,"replyNum":10,
+                   "content":"看到后面有些失望[em:sfgirl:007]",
+                   "postDate":"2025-04-08T13:58:07",
+                   "postUser":{"accountId":10596429,"nickName":"hyxv5"},
+                   "roleName":"火种"}
+                ]"""
+            )
+        )
+        assertEquals(1, parsed.size)
+        val comment = parsed.single()
+        assertEquals("35702792", comment.id)
+        assertEquals(0, comment.row)
+        assertEquals("hyxv5", comment.displayName)
+        assertNull(comment.avatar)
+        assertEquals("看到后面有些失望[表情]", comment.content)
+        assertEquals("2025-04-08 13:58:07", comment.createTime)
+        assertEquals(27, comment.favCount)
+        assertEquals(10, comment.replyNum)
+        assertEquals("火种", comment.roleName)
+    }
+
+    @Test fun tsukkomiContainersAndMalformedEntriesHaveDistinctResults() {
+        val item = """{"id":"1","content":"合法","postUser":{"nickName":"读者"}}"""
+        assertEquals(1, SfProtocol.parseParagraphComments(
+            Json.parseToJsonElement("""{"tsukkomis":[$item]}""")
+        ).size)
+        assertEquals(1, SfProtocol.parseParagraphComments(
+            Json.parseToJsonElement("""{"items":[$item]}""")
+        ).size)
+        try {
+            SfProtocol.parseParagraphComments(Json.parseToJsonElement("""[{"id":"bad","content":""}]"""))
+            fail("Malformed comment must not appear as a valid empty state")
+        } catch (e: SfException) {
+            assertEquals(SfFailureKind.INVALID, e.kind)
+        }
+    }
 }
