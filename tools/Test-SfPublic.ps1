@@ -56,7 +56,7 @@ if ($ProbeRoutes.Count -gt 0) {
     $probeIndex = 0
     foreach ($route in $ProbeRoutes) {
         if ($probeIndex -gt 0) { Start-Sleep -Seconds 2 }
-        if ($route -notmatch '^(noveltypes(?:\?|$)|novels/|novel/|users/\d+/(novels|dynamics)|chaps/0/\d+/tsukkomis|Chaps/|ranks/|search/)') { throw 'Probe accepts only known public read routes' }
+        if ($route -notmatch '^(noveltypes(?:\?|$)|novels/|novel/|users/\d+/(novels|dynamics)|chaps/0/\d+/tsukkomis|tsukkomis/\d+/replys(?:\?|$)|Chaps/|ranks/|search/)') { throw 'Probe accepts only known public read routes' }
         if ($route -match '(?i)(?:\?|&)(?:method|action|order|buy|pay|like|reply|follow|comment)=') { throw 'Probe accepts read-only routes only' }
         $data = Get-SfPublic $route
         $probeIndex++

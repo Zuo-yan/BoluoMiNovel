@@ -11,6 +11,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
 data class SfBrowserState(
     val busy: Boolean = false, val error: String? = null,
@@ -110,6 +113,49 @@ class SfViewModel @Inject constructor(
             } }
         }
     }
+    private val updatePrefs = context.getSharedPreferences("sf_update_checks", Context.MODE_PRIVATE)
+    val updates = MutableStateFlow(runCatching {
+        Json.decodeFromString<Map<String, ShelfUpdate>>(updatePrefs.getString("results", "{}")!!)
+    }.getOrDefault(emptyMap()))
+    val checkingUpdates = MutableStateFlow(false)
+    private var updateJob: Job? = null
+    fun checkUpdates() {
+        if (checkingUpdates.value) return
+        val ids = (localBooks.value.map { it.id } + state.value.books.map { "sf:${it.id}" }).distinct()
+        checkingUpdates.value = true
+        updateJob = viewModelScope.launch {
+            try {
+                for (id in ids) {
+                    ensureActive()
+                    val old = db.chapterDao().getByBook(id).map { it.id }.toSet()
+                    try {
+                        val detail = session.novelDetail(id.removePrefix("sf:"))
+                        library.openBook(id.removePrefix("sf:"))
+                        val chapters = db.chapterDao().getByBook(id).filter { it.remoteId != null }
+                        val current = db.bookDao().getById(id)
+                        val added = if (old.isEmpty()) emptyList() else chapters.filter { it.id !in old }.map { it.id }
+                        val previous = updates.value[id]?.added.orEmpty()
+                        updates.update { it + (id to ShelfUpdate(detail.latestChapterTitle.ifBlank { chapters.lastOrNull()?.title.orEmpty() }, detail.lastUpdateTime.replace("T", " "),
+                            chapters.count { c -> c.chapterIndex > (current?.takeIf { it.lastReadAt > 0 }?.currentReadingChapterIndex ?: -1) },
+                            (previous + added).distinct(), System.currentTimeMillis())) }
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) {
+                        updates.update { it + (id to (it[id] ?: ShelfUpdate()).copy(error = e.message ?: "检查失败")) }
+                        if (e is SfException && e.kind in listOf(SfFailureKind.RISK, SfFailureKind.RATE_LIMIT, SfFailureKind.SIGNATURE, SfFailureKind.CLIENT, SfFailureKind.COOLDOWN)) break
+                    }
+                    updatePrefs.edit().putString("results", Json.encodeToString(updates.value)).apply()
+                }
+            } finally { checkingUpdates.value = false }
+        }
+    }
+    fun cancelUpdateCheck() { updateJob?.cancel() }
+    fun downloadUpdates(id: String) = action {
+        val added = updates.value[id]?.added.orEmpty().toSet()
+        val targets = db.chapterDao().getByBook(id).filter { it.id in added && !it.downloaded }.map { it.id }
+        if (targets.isEmpty()) error("没有待下载的新增章节，请先检查更新")
+        downloads.start(id, targets)
+    }
+
     fun restoreSession() { if (session.hasSession && state.value.shelves.isEmpty()) action { session.validate(); refreshShelvesInternal() } }
 
     private fun action(block: suspend () -> Unit) {
@@ -495,3 +541,9 @@ class SfViewModel @Inject constructor(
         }
     }
 }
+
+@kotlinx.serialization.Serializable
+data class ShelfUpdate(val latest: String = "", val time: String = "", val unread: Int = 0,
+     val added: List<String> = emptyList(), val checkedAt: Long = 0, val error: String? = null) {
+     fun label(): String = error ?: "更新：$time · 未读 $unread 章\n$latest" + if (added.isNotEmpty()) " · 新增 ${added.size} 章" else ""
+ }

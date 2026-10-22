@@ -202,7 +202,11 @@ object SfProtocol {
         org.jsoup.Jsoup.parse(
             html.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
                 .replace(Regex("</p\\s*>", RegexOption.IGNORE_CASE), "\n")
-        ).wholeText().replace("\r\n", "\n").replace('\r', '\n').trim()
+        ).also { document ->
+            document.select("img[src]").forEach { image ->
+                image.replaceWith(org.jsoup.nodes.TextNode("[img]${image.attr("src")}[/img]"))
+            }
+        }.wholeText().replace("\r\n", "\n").replace('\r', '\n').trim()
 
     /**
      * Chapter responses expose an `expand.tsukkomi` summary with row/count.
@@ -556,6 +560,13 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
             lastUpdateTime = lastUpdateTime,
             latestChapterTitle = latestChapterTitle,
         )
+    }
+
+    suspend fun paragraphReplies(commentId: String): List<SfParagraphReply> {
+        require(commentId.matches(Regex("\\d+")))
+        val data = request("tsukkomis/$commentId/replys?expand=avatar%2CroleName").first
+        if (data !is JsonArray) throw SfException(SfFailureKind.INVALID, "回复返回格式已变化")
+        return SfProtocol.parseParagraphReplies(JsonObject(mapOf("replys" to data)))
     }
 
     suspend fun paragraphComments(chapterId: String, page: Int = 1, size: Int = 20,

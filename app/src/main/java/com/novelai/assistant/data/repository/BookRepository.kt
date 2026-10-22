@@ -47,6 +47,8 @@ class BookRepository @Inject constructor(
         page: Int = 1
     ) = sfSession.paragraphComments(chapterId, page = page, sort = sort, row = row)
 
+    suspend fun remoteParagraphReplies(id: String) = sfSession.paragraphReplies(id)
+
     suspend fun import(uri: Uri): BookImportManager.ImportResult = importManager.importFromUri(uri)
 
     /** 抓取器导入：直接落库在线抓取的章节（顺带下载源站封面并记录源站标识） */

@@ -44,6 +44,8 @@ fun SfScreen(
     viewModel: SfViewModel = hiltViewModel()
 ) {
     LaunchedEffect(viewModel) { viewModel.restoreSession() }
+    val updates by viewModel.updates.collectAsStateWithLifecycle()
+    val checkingUpdates by viewModel.checkingUpdates.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val account by viewModel.account.collectAsStateWithLifecycle()
     val safety by viewModel.safety.collectAsStateWithLifecycle()
@@ -129,6 +131,12 @@ fun SfScreen(
                 if (account != null) IconButton({ viewModel.refreshShelves() }, enabled = !state.busy) { Icon(Icons.Rounded.Refresh, "刷新书架") }
             }
         }
+        item {
+            TextButton({ if (checkingUpdates) viewModel.cancelUpdateCheck() else viewModel.checkUpdates() },
+                modifier = Modifier.padding(horizontal = 16.dp)) {
+                Text(if (checkingUpdates) "正在检查更新 · 点击停止" else "检查书架更新")
+            }
+        }
         if (state.shelves.isNotEmpty() && account != null) item {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 state.shelves.forEach { (id, name) -> FilterChip(state.selectedShelf == id, { viewModel.selectShelf(id) }, enabled = !state.busy, label = { Text(name) }) }
@@ -143,6 +151,10 @@ fun SfScreen(
         if (account != null) {
             items(state.books, key = { it.id }) { book ->
                 val local = progress["sf:${book.id}"]
+                updates["sf:${book.id}"]?.let { update ->
+                    Text(update.label(), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+                    if (update.added.isNotEmpty()) TextButton({ viewModel.downloadUpdates("sf:${book.id}") }) { Text("下载新增章节") }
+                }
                 SfBookRow(book.title, book.author, local?.coverUri ?: book.cover,
                     local?.let { "读到第 ${it.currentReadingChapterIndex + 1} 章 · ${it.readingProgressPercent.toInt()}%" } ?: "尚未阅读",
                     onRead = { onOpenBook(local?.id ?: "sf:${book.id}") },
@@ -150,7 +162,12 @@ fun SfScreen(
             }
             if (state.hasMore) item { TextButton({ viewModel.loadMore() }, enabled = !state.busy, modifier = Modifier.fillMaxWidth().padding(12.dp)) { Text("加载更多作品") } }
         } else {
-            items(locals, key = { it.id }) { book -> SfBookRow(book.title, book.author, book.coverUri,
+            items(locals, key = { it.id }) { book ->
+                updates[book.id]?.let { update ->
+                    Text(update.label(), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+                    if (update.added.isNotEmpty()) TextButton({ viewModel.downloadUpdates(book.id) }) { Text("下载新增章节") }
+                }
+                SfBookRow(book.title, book.author, book.coverUri,
                 "${book.readingProgressPercent.toInt()}% · ${book.totalChapters} 章", { onOpenBook(book.id) }, { viewModel.localAction(book.id, it) }) }
         }
         if (!state.busy && (if (account != null) state.books.isEmpty() else locals.isEmpty())) item {
@@ -285,11 +302,24 @@ fun SfCatalogScreen(bookId: String, onBack: () -> Unit, onRead: (Int) -> Unit, v
     LaunchedEffect(bookId) { viewModel.selectLocal(bookId) }
     val book by viewModel.book.collectAsStateWithLifecycle()
     val chapters by viewModel.chapters.collectAsStateWithLifecycle()
+    val updates by viewModel.updates.collectAsStateWithLifecycle()
+    val checkingUpdates by viewModel.checkingUpdates.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
     Scaffold(topBar = { TopAppBar(title = { Text("章节目录") }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") } },
         actions = { if (bookId.startsWith("sf:")) IconButton({ viewModel.refreshDirectory(bookId) }, enabled = !state.busy) { Icon(Icons.Rounded.Refresh, "刷新目录") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item { Text(book?.title.orEmpty(), Modifier.padding(20.dp), style = MaterialTheme.typography.titleLarge) }
+            updates[bookId]?.let { update ->
+                item {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(update.label(), style = MaterialTheme.typography.bodySmall,
+                            color = if (update.error != null) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (update.added.isNotEmpty()) TextButton({ viewModel.downloadUpdates(bookId) }) { Text("下载新增章节") }
+                    }
+                }
+            }
             state.error?.let { item { Text(it, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error) } }
             if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             items(chapters, key = { it.id }) { ch -> ListItem(headlineContent = { Text("${ch.chapterIndex + 1}. ${ch.title}") }, supportingContent = { Text(when { ch.downloaded -> "已下载"; ch.content.isNotBlank() -> "已缓存"; ch.isPaid -> "VIP · 读取时检查已购权限"; else -> "免费" }) }, modifier = Modifier.clickable { onRead(ch.chapterIndex) }) }

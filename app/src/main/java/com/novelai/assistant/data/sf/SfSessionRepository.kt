@@ -99,6 +99,7 @@ class SfSessionRepository @Inject constructor(
     suspend fun authorPortfolio(bookId: String) = authorClient.portfolio(bookId)
     suspend fun paragraphComments(chapterId: String, page: Int = 1, sort: String = "hot", row: Int? = null) =
         api.paragraphComments(chapterId, page, sort = sort, row = row)
+    suspend fun paragraphReplies(id: String) = api.paragraphReplies(id)
     suspend fun fetchOfficialTags() = api.fetchOfficialTags()
     suspend fun fetchCategories() = api.fetchCategories()
     suspend fun browseFiltered(filter: SfBrowseFilter, page: Int = 1, sort: String = "viewtimes") = api.browseFiltered(filter, page, sort = sort)

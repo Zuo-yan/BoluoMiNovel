@@ -367,7 +367,7 @@ class TtsPlayer @Inject constructor(
         // 构建段落切块队列
         val items = mutableListOf<TtsQueueItem>()
         for (pIdx in startIndex until paragraphs.size) {
-            val chunks = splitLongParagraph(paragraphs[pIdx])
+            val chunks = splitLongParagraph(if (com.novelai.assistant.ui.reader.ReaderIllustration.parse(paragraphs[pIdx]) != null) "插图" else paragraphs[pIdx])
             val isLastPara = (pIdx == paragraphs.lastIndex)
             for (cIdx in chunks.indices) {
                 val isLastChunk = isLastPara && (cIdx == chunks.lastIndex)

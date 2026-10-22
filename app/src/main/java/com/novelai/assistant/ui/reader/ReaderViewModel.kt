@@ -55,7 +55,19 @@ class ReaderViewModel @Inject constructor(
 ) : ViewModel() {
 
     val bookId: String = savedStateHandle["bookId"] ?: ""
-    private val initialChapterIndex: Int = savedStateHandle["chapter"] ?: -1
+    private val positions = context.getSharedPreferences("reader_positions", Context.MODE_PRIVATE)
+    private val initialChapterIndex: Int = (savedStateHandle.get<Int>("chapter") ?: -1).let {
+        if (it >= 0) it else positions.getInt("$bookId:lastChapter", -1)
+    }
+    fun readPosition(chapterId: String): ReadingAnchor = ReadingAnchor(
+        positions.getInt("$chapterId:paragraph", 0), positions.getInt("$chapterId:character", 0),
+        positions.getInt("$chapterId:scroll", 0))
+    fun savePosition(chapterId: String, anchor: ReadingAnchor) {
+        if (chapterId != currentChapter.value?.id) return
+        positions.edit().putInt("$chapterId:paragraph", anchor.paragraph)
+            .putInt("$chapterId:character", anchor.character).putInt("$chapterId:scroll", anchor.scroll)
+            .putInt("$bookId:lastChapter", currentChapter.value?.chapterIndex ?: _chapterIndex.value).apply()
+    }
 
     val book: StateFlow<BookEntity?> = bookRepository.observeBook(bookId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -116,6 +128,27 @@ class ReaderViewModel @Inject constructor(
     val expandedParagraphReplies = _expandedParagraphReplies.asStateFlow()
     private var paragraphCommentsJob: Job? = null
     private var paragraphCommentsPage = 0
+    private val replyJobs = mutableMapOf<String, Job>()
+    val replyThreads = MutableStateFlow<Map<String, ReplyThread>>(emptyMap())
+    private fun clearReplyThreads() {
+        replyJobs.values.forEach { it.cancel() }
+        replyJobs.clear()
+        replyThreads.value = emptyMap()
+    }
+    fun loadReplies(id: String) {
+        if (replyThreads.value[id]?.loading == true) return
+        replyThreads.update { it + (id to (it[id] ?: ReplyThread()).copy(loading = true, error = null)) }
+        replyJobs[id] = viewModelScope.launch {
+            try {
+                val replies = bookRepository.remoteParagraphReplies(id)
+                replyThreads.update { it + (id to ReplyThread(replies = replies, loaded = true)) }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                replyThreads.update { it + (id to (it[id] ?: ReplyThread()).copy(loading = false, error = e.message ?: "回复加载失败")) }
+            }
+        }
+    }
+
 
     // 目录树（分支缩进）
     val tocItems: StateFlow<List<TocItem>> =
@@ -485,6 +518,7 @@ class ReaderViewModel @Inject constructor(
         _paragraphCommentsError.value = null
         paragraphCommentsPage = 0
         _expandedParagraphReplies.value = emptySet()
+        clearReplyThreads()
         paragraphCommentsJob?.cancel()
         val remoteId = sfTsukkomiChapterId(chapter.id, chapter.remoteId)
         if (remoteId == null) {
@@ -536,10 +570,11 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun toggleParagraphReplies(commentId: String) {
-        if (_paragraphComments.value.none { it.id == commentId && it.replies.isNotEmpty() }) return
+        if (_paragraphComments.value.none { it.id == commentId }) return
         _expandedParagraphReplies.update { current ->
             if (commentId in current) current - commentId else current + commentId
         }
+        if (commentId in _expandedParagraphReplies.value && replyThreads.value[commentId]?.loaded != true) loadReplies(commentId)
     }
 
     fun closeParagraphComments() {
@@ -550,6 +585,7 @@ class ReaderViewModel @Inject constructor(
         paragraphCommentsPage = 0
         _paragraphCommentsRow.value = null
         _expandedParagraphReplies.value = emptySet()
+        clearReplyThreads()
     }
 
     fun playFromQuotedParagraph() {
@@ -656,3 +692,8 @@ class ReaderViewModel @Inject constructor(
 internal fun sfTsukkomiChapterId(localId: String, remoteId: String?): String? =
     remoteId?.takeIf { it.matches(Regex("\\d+")) }
         ?: localId.takeIf { it.matches(Regex("\\d+")) }
+
+ data class ReplyThread(
+    val replies: List<com.novelai.assistant.data.sf.SfParagraphReply> = emptyList(),
+    val loading: Boolean = false, val loaded: Boolean = false, val error: String? = null
+ )

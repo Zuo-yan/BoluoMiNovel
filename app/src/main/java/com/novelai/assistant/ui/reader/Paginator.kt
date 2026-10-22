@@ -7,7 +7,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Constraints
 
 /** 页内片段：某段落的可见部分 */
-data class PageFragment(val paraIndex: Int, val text: String)
+data class ReadingAnchor(val paragraph: Int = 0, val character: Int = 0, val scroll: Int = 0)
+
+data class PageFragment(val paraIndex: Int, val text: String, val startOffset: Int = 0)
 
 data class ReaderPage(val fragments: List<PageFragment>)
 
@@ -16,6 +18,11 @@ data class ReaderPage(val fragments: List<PageFragment>)
  * 超页长段落按行拆分。保证页内文本与测量布局一致（所见即所分）。
  */
 object Paginator {
+    fun pageForAnchor(pages: List<ReaderPage>, anchor: ReadingAnchor): Int =
+        pages.indexOfLast { page -> page.fragments.firstOrNull()?.let {
+            it.paraIndex < anchor.paragraph || (it.paraIndex == anchor.paragraph && it.startOffset <= anchor.character)
+        } == true }.coerceAtLeast(0)
+
 
     fun paginate(
         paragraphs: List<String>,
@@ -43,6 +50,11 @@ object Paginator {
 
         paragraphs.forEachIndexed { pi, para ->
             if (para.isBlank()) return@forEachIndexed
+            if (ReaderIllustration.parse(para) != null) {
+                flush()
+                pages.add(ReaderPage(listOf(PageFragment(pi, para))))
+                return@forEachIndexed
+            }
             val layout: TextLayoutResult = textMeasurer.measure(
                 text = AnnotatedString(para),
                 style = style,
@@ -101,7 +113,7 @@ object Paginator {
 
                 usedHeight += effectiveSpacing + accHeight.toInt()
                 if (text.isNotBlank()) {
-                    current.add(PageFragment(pi, text))
+                    current.add(PageFragment(pi, text, startOffset))
                 }
 
                 startLine = endLine

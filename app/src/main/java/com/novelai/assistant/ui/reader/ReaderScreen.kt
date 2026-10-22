@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -142,7 +144,7 @@ import com.novelai.assistant.ui.theme.NovelAITheme
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ReaderScreen(
     bookId: String,
@@ -175,6 +177,7 @@ fun ReaderScreen(
     val paragraphCommentsSort by viewModel.paragraphCommentsSort.collectAsStateWithLifecycle()
     val paragraphCommentsOpen by viewModel.paragraphCommentsOpen.collectAsStateWithLifecycle()
     val paragraphCommentCounts by viewModel.paragraphCommentCounts.collectAsStateWithLifecycle()
+    val replyThreads by viewModel.replyThreads.collectAsStateWithLifecycle()
     val expandedParagraphReplies by viewModel.expandedParagraphReplies.collectAsStateWithLifecycle()
     val ttsSpeaking by viewModel.ttsSpeaking.collectAsStateWithLifecycle()
     val ttsPaused by viewModel.ttsPaused.collectAsStateWithLifecycle()
@@ -306,6 +309,8 @@ fun ReaderScreen(
                 if (settings.pageMode == PageMode.PAGED) {
                     PagedContent(
                         chapterId = chapter.id,
+                        readPosition = { viewModel.readPosition(chapter.id) },
+                        savePosition = { viewModel.savePosition(chapter.id, it) },
                         paragraphs = paragraphs,
                         settings = settings,
                         palette = palette,
@@ -339,6 +344,8 @@ fun ReaderScreen(
                 } else {
                     ScrollContent(
                         chapterId = chapter.id,
+                        readPosition = { viewModel.readPosition(chapter.id) },
+                        savePosition = { viewModel.savePosition(chapter.id, it) },
                         paragraphs = paragraphs,
                         settings = settings,
                         palette = palette,
@@ -677,11 +684,14 @@ fun ReaderScreen(
                     if (isEffectiveDark) Color(0xFF404050) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 )
             ) {
-                Row(
+                // 用 FlowRow + 定宽上限：横向滚动会让 Row 按不限宽测量，
+                // 外层 Surface 随之撑出屏幕，末尾的“本章间贴”被推到不可点区域。
+                FlowRow(
                     Modifier
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    maxItemsInEachRow = 3,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     QuoteChip("从此处朗读", Icons.Rounded.PlayArrow, accent) {
@@ -741,6 +751,8 @@ fun ReaderScreen(
                 paragraph = paragraphCommentsQuote,
                 chapterTitle = currentChapter?.title.orEmpty(),
                 expandedReplies = expandedParagraphReplies,
+                replyThreads = replyThreads,
+                onRetryReplies = viewModel::loadReplies,
                 onSort = { viewModel.openParagraphComments(it) },
                 onLoadMore = { viewModel.loadMoreParagraphComments() },
                 onToggleReplies = { viewModel.toggleParagraphReplies(it) },
@@ -1113,6 +1125,8 @@ private fun ParagraphCommentsSheet(
     paragraph: String,
     chapterTitle: String,
     expandedReplies: Set<String>,
+    replyThreads: Map<String, ReplyThread>,
+    onRetryReplies: (String) -> Unit,
     onSort: (String) -> Unit,
     onLoadMore: () -> Unit,
     onToggleReplies: (String) -> Unit,
@@ -1122,7 +1136,7 @@ private fun ParagraphCommentsSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, dragHandle = { BottomSheetDefaults.DragHandle() }) {
         Column(Modifier.fillMaxWidth().heightIn(min = 360.dp, max = 680.dp)) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
@@ -1134,27 +1148,36 @@ private fun ParagraphCommentsSheet(
                     }
                     IconButton(onDismiss) { Icon(Icons.Rounded.Close, "关闭") }
                 }
-                if (paragraph.isNotBlank()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            "阅读位置",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) {
-                            Text(paragraph, Modifier.padding(12.dp), maxLines = 3,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        }
-                    }
-                }
+                // 引文与排序并排：引文占剩余宽度，排序贴右下，避免整行留白
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Bottom
                 ) {
+                    if (paragraph.isNotBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    Modifier
+                                        .width(3.dp)
+                                        .height(14.dp)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = .55f),
+                                            androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                                )
+                                Text(paragraph, maxLines = 2,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            }
+                        }
+                    } else Spacer(Modifier.weight(1f))
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
@@ -1172,7 +1195,7 @@ private fun ParagraphCommentsSheet(
                                 ) {
                                     Text(
                                         label,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         style = MaterialTheme.typography.labelLarge,
                                         color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                                         else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1183,7 +1206,7 @@ private fun ParagraphCommentsSheet(
                     }
                 }
             }
-            HorizontalDivider(Modifier.padding(top = 8.dp))
+            HorizontalDivider(Modifier.padding(top = 6.dp))
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp))
             if (error != null) {
                 Text(error, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error)
@@ -1214,7 +1237,7 @@ private fun ParagraphCommentsSheet(
                                     horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text(comment.createTime, style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.outline)
-                                    if (comment.replies.isNotEmpty()) {
+                                    if (comment.replyNum > 0 || comment.replies.isNotEmpty()) {
                                         TextButton(
                                             onClick = { onToggleReplies(comment.id) },
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -1222,7 +1245,7 @@ private fun ParagraphCommentsSheet(
                                         ) {
                                             Text(
                                                 if (comment.id in expandedReplies) "收起回复"
-                                                else "查看 ${comment.replies.size} 条回复",
+                                                else "查看回复（${comment.replyNum}）",
                                                 style = MaterialTheme.typography.labelSmall
                                             )
                                         }
@@ -1232,14 +1255,20 @@ private fun ParagraphCommentsSheet(
                                             color = MaterialTheme.colorScheme.outline)
                                     }
                                 }
-                                if (comment.id in expandedReplies && comment.replies.isNotEmpty()) {
+                                if (comment.id in expandedReplies) {
+                                    val thread = replyThreads[comment.id] ?: ReplyThread()
                                     Column(
                                         Modifier
                                             .fillMaxWidth()
                                             .padding(start = 8.dp, top = 2.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        comment.replies.forEach { reply ->
+                                        if (thread.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                                        thread.error?.let { message ->
+                                            Text(message, color = MaterialTheme.colorScheme.error)
+                                            TextButton({ onRetryReplies(comment.id) }) { Text("重试回复") }
+                                        }
+                                        thread.replies.forEach { reply ->
                                             Surface(
                                                 color = MaterialTheme.colorScheme.surfaceContainerLow,
                                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
@@ -1272,9 +1301,9 @@ private fun ParagraphCommentsSheet(
                                                 }
                                             }
                                         }
-                                        if (comment.replyNum > comment.replies.size) {
+                                        if (thread.loaded) {
                                             Text(
-                                                "官方间贴展开仅返回最近 ${comment.replies.size} 条回复",
+                                                "已显示 ${thread.replies.size} 条可见回复",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1375,6 +1404,8 @@ private fun InlineTsukkomiMarker(
 @Composable
 private fun PagedContent(
     chapterId: String,
+    readPosition: () -> ReadingAnchor,
+    savePosition: (ReadingAnchor) -> Unit,
     paragraphs: List<String>,
     settings: ReadingSettings,
     palette: com.novelai.assistant.ui.theme.ReaderPalette,
@@ -1422,20 +1453,24 @@ private fun PagedContent(
             chapterId, paragraphs, settings.fontSizeSp, settings.lineSpacingMultiplier,
             settings.serifFont, widthPx, heightPx, settings.paragraphSpacingDp
         ) {
-            Paginator.paginate(paragraphs, textMeasurer, readerStyle, widthPx, heightPx, paraSpacingPx)
+            Paginator.paginate(paragraphs, textMeasurer, readerStyle, widthPx - with(density) { 28.dp.roundToPx() }, heightPx, paraSpacingPx)
         }
 
         val pagerState = rememberPagerState(pageCount = { pages.size })
 
+        var positionReady by remember(chapterId, pages) { mutableStateOf(false) }
         LaunchedEffect(chapterId, pages) {
+            val anchor = readPosition()
             val target = targetPageProvider()
             if (target == -1) {
                 pagerState.scrollToPage(pages.lastIndex.coerceAtLeast(0))
             } else if (target != null && target >= 0) {
                 pagerState.scrollToPage(target.coerceIn(0, pages.lastIndex.coerceAtLeast(0)))
             } else {
-                pagerState.scrollToPage(0)
+                val restored = Paginator.pageForAnchor(pages, anchor)
+                pagerState.scrollToPage(restored)
             }
+            positionReady = true
         }
 
         LaunchedEffect(pagerState) {
@@ -1445,7 +1480,11 @@ private fun PagedContent(
         }
 
         // 通知当前页起始段落（供听书从当前页起播）
-        LaunchedEffect(pagerState.currentPage, pages) {
+        LaunchedEffect(pagerState.currentPage, pages, positionReady) {
+            if (!positionReady) return@LaunchedEffect
+            pages.getOrNull(pagerState.currentPage)?.fragments?.firstOrNull()?.let {
+                savePosition(ReadingAnchor(it.paraIndex, it.startOffset))
+            }
             val firstPara = pages.getOrNull(pagerState.currentPage)?.fragments?.firstOrNull()?.paraIndex ?: 0
             onVisibleParaChange(firstPara)
         }
@@ -1603,14 +1642,18 @@ private fun PagedContent(
                                     }
                             }
                             val markerCount = commentCounts[frag.paraIndex] ?: 0
-                            Box(Modifier.fillMaxWidth()) {
+                            val illustration = ReaderIllustration.parse(frag.text)
+                            if (illustration != null) {
+                                Box(Modifier.fillMaxWidth().height(with(density) { heightPx.toDp() })) {
+                                    ReaderIllustrationView(illustration, Modifier.fillMaxSize().padding(end = 28.dp))
+                                    InlineTsukkomiMarker(markerCount, isDarkReader,
+                                        { onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex) }, Modifier.align(Alignment.TopEnd))
+                                }
+                            } else Box(Modifier.fillMaxWidth()) {
                                 Text(
                                     text = frag.text,
                                     style = readerStyle,
-                                    modifier = if (markerCount > 0) {
-                                        textModifier
-                                            .padding(end = 28.dp)
-                                    } else textModifier
+                                    modifier = textModifier.padding(end = 28.dp)
                                 )
                                 if (commentCounts[frag.paraIndex] ?: 0 > 0) {
                                     InlineTsukkomiMarker(
@@ -1645,6 +1688,8 @@ private fun PagedContent(
 @Composable
 private fun ScrollContent(
     chapterId: String,
+    readPosition: () -> ReadingAnchor,
+    savePosition: (ReadingAnchor) -> Unit,
     paragraphs: List<String>,
     settings: ReadingSettings,
     palette: com.novelai.assistant.ui.theme.ReaderPalette,
@@ -1664,13 +1709,14 @@ private fun ScrollContent(
 ) {
     val listState = rememberLazyListState()
 
-    LaunchedEffect(chapterId) { listState.scrollToItem(0) }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .distinctUntilChanged()
-            .collect {
+    LaunchedEffect(chapterId, paragraphs) {
+        val anchor = readPosition()
+        listState.scrollToItem(anchor.paragraph.coerceIn(0, paragraphs.lastIndex.coerceAtLeast(0)), anchor.scroll)
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged().collect { (index, offset) ->
+                savePosition(ReadingAnchor(index, scroll = offset))
                 onProgress()
-                onVisibleParaChange(it)
+                onVisibleParaChange(index)
             }
     }
 
@@ -1755,7 +1801,10 @@ private fun ParagraphText(
                     onLongClick = onLongPress
                 )
         }
-        Text(
+        val illustration = ReaderIllustration.parse(text)
+        if (illustration != null) {
+            ReaderIllustrationView(illustration, Modifier.fillMaxWidth().height(420.dp))
+        } else Text(
             text = text,
             style = style,
             modifier = if (commentCount > 0) textModifier.padding(end = 28.dp) else textModifier
