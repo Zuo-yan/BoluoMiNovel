@@ -6,12 +6,20 @@
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-blue.svg?style=flat-square" alt="UI" />
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean%20Architecture-orange.svg?style=flat-square" alt="Architecture" />
   <img src="https://img.shields.io/badge/BYOK-Privacy%20First-red.svg?style=flat-square" alt="BYOK" />
-  <img src="https://img.shields.io/badge/Latest%20Version-v0.30.2-success.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Latest%20Version-v0.30.3-success.svg?style=flat-square" alt="Version" />
 </p>
 
 ---
 
 ## 📖 项目简介
+
+### v0.30.3：段落间贴提示与完整书评历史
+
+- 菠萝包远程章节在加载正文时同步读取官方 `expand.tsukkomi` 摘要；有人讨论的段落右侧常驻轻量气泡与数量徽标，不再需要先长按才能发现间贴。
+- 段落位次严格采用服务器 `row`，保留正文中的空白段号；本地书、AI 章节和普通纯文本章节不显示间贴标记。点击徽标直接打开该段的真实间贴。
+- 读者书评取消“仅前 10 条”和只读首屏的限制，按官方分页持续加载历史书评，区分加载中、失败重试和全部到底状态；第 1、2 页真实样本分别为 20、3 条且无重复。
+- 间贴 bottom sheet 本身也支持继续分页，保留最热、最新排序和当前段上下文。
+- 每条间贴的“查看回复”可按需展开真实楼中楼，显示回复者昵称、头像、角色、正文和时间；接口若只随首屏带回部分回复，会明确显示已返回数量。
 
 ### v0.30.2：章节间贴与作者作品集
 

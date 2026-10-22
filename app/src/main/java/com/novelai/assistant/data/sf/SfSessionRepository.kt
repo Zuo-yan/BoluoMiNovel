@@ -97,8 +97,8 @@ class SfSessionRepository @Inject constructor(
     suspend fun browseRank(sort: String = "hot", page: Int = 1) = api.browseRank(sort, page)
     suspend fun novelDetail(id: String) = api.novelDetail(id)
     suspend fun authorPortfolio(bookId: String) = authorClient.portfolio(bookId)
-    suspend fun paragraphComments(chapterId: String, page: Int = 1, sort: String = "hot") =
-        api.paragraphComments(chapterId, page, sort = sort)
+    suspend fun paragraphComments(chapterId: String, page: Int = 1, sort: String = "hot", row: Int? = null) =
+        api.paragraphComments(chapterId, page, sort = sort, row = row)
     suspend fun fetchOfficialTags() = api.fetchOfficialTags()
     suspend fun fetchCategories() = api.fetchCategories()
     suspend fun browseFiltered(filter: SfBrowseFilter, page: Int = 1, sort: String = "viewtimes") = api.browseFiltered(filter, page, sort = sort)
@@ -119,6 +119,22 @@ class SfSessionRepository @Inject constructor(
             }
         } catch (e: SfException) {
             if (e.kind == SfFailureKind.AUTH) { _account.value = null }
+            throw e
+        }
+    }
+
+    suspend fun chapterWithComments(
+        id: String,
+        paid: Boolean
+    ): Pair<String, List<SfParagraphCommentSummary>> {
+        try {
+            return withContext(Dispatchers.IO) {
+                api.chapterWithComments(id, cookie, paid) { raw ->
+                    buildString { raw.forEach { append(decoder[it.toString()] ?: it) } }
+                }
+            }
+        } catch (e: SfException) {
+            if (e.kind == SfFailureKind.AUTH) _account.value = null
             throw e
         }
     }

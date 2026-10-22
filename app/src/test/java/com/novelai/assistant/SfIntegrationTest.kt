@@ -349,6 +349,79 @@ class SfIntegrationTest {
         assertTrue(shelfRes.success)
     }
 
+    @Test fun novelCommentPagesKeepDistinctHistoryAndUseCursor() = runBlocking {
+        val paths = mutableListOf<String>()
+        val api = SfApi(SfTransport { path, _, _ ->
+            paths += path
+            if (path.contains("page=0")) {
+                ok("""{"cmts":[{"commentId":1,"displayName":"甲","content":"第一条"},{"commentId":2,"displayName":"乙","content":"第二条"}]}""")
+            } else {
+                ok("""{"cmts":[{"commentId":3,"displayName":"丙","content":"历史评论"}]}""")
+            }
+        }, device)
+        val first = api.novelComments("155640", page = 1)
+        val second = api.novelComments("155640", page = 2)
+        assertEquals(listOf("1", "2", "3"), (first + second).map { it.id })
+        assertTrue(paths[0].contains("page=0"))
+        assertTrue(paths[1].contains("page=1"))
+        assertTrue(paths.all { it.contains("sort=smart") && it.contains("type=clear") })
+    }
+
+    @Test fun novelCommentsAcceptKnownContainersAndRejectUnusableRows() {
+        val comment = """{"commentId":7,"displayName":"读者","content":"书评"}"""
+        val dummyApi = SfApi(SfTransport { _, _, _ -> error("parser-only test") }, device)
+        assertEquals(1, dummyApi.parseNovelComments(Json.parseToJsonElement("""{"comments":[$comment]}""")).size)
+        assertEquals(1, dummyApi.parseNovelComments(Json.parseToJsonElement("""{"items":[$comment]}""")).size)
+        assertTrue(dummyApi.parseNovelComments(Json.parseToJsonElement("""{"comments":[{"commentId":8,"content":""}]}""")).isEmpty())
+    }
+
+    @Test fun chapterResponseProvidesAuthoritativeParagraphCommentCounts() {
+        val summaries = SfProtocol.paragraphCommentSummaries(
+            obj(
+                """{"expand":{"tsukkomi":[
+                    {"row":2,"count":1},
+                    {"row":0,"count":4},
+                    {"row":2,"count":3},
+                    {"row":-1,"count":9},
+                    {"row":4,"count":0},
+                    {"row":"bad","count":2}
+                ]}}"""
+            )
+        )
+        assertEquals(
+            listOf(
+                SfParagraphCommentSummary(0, 4),
+                SfParagraphCommentSummary(2, 3)
+            ),
+            summaries
+        )
+    }
+
+    @Test fun paragraphNormalizationPreservesServerRowLineBreaks() {
+        assertEquals(
+            "第一段\n第三段\n第四段",
+            SfProtocol.normalizeSfParagraphRows("第一段<br>第三段<br/>第四段")
+        )
+        assertEquals(
+            "第一段\n第二段\n第三段",
+            SfProtocol.normalizeSfParagraphRows("<p>第一段</p><p>第二段</p><p>第三段</p>")
+        )
+    }
+
+    @Test fun pagedTsukkomiRequestTargetsChosenRow() = runBlocking {
+        var path = ""
+        val api = SfApi(SfTransport { actual, _, _ ->
+            path = actual
+            ok("[]")
+        }, device)
+        api.paragraphComments("6367390", row = 2, sort = "new")
+        assertTrue(path.startsWith("chaps/0/6367390/tsukkomis?"))
+        assertTrue(path.contains("row=2"))
+        assertTrue(path.contains("sort=addtime"))
+        assertTrue(path.contains("expand=vipLevel"))
+        assertTrue(path.contains("replys"))
+    }
+
     @Test fun realChapterTsukkomiFieldsAreParsedWithoutInventingVip() {
         val parsed = SfProtocol.parseParagraphComments(
             Json.parseToJsonElement(
@@ -388,5 +461,35 @@ class SfIntegrationTest {
         } catch (e: SfException) {
             assertEquals(SfFailureKind.INVALID, e.kind)
         }
+    }
+
+    @Test fun tsukkomiReplyThreadParsesRealNestedFieldsAndDeduplicates() {
+        val parsed = SfProtocol.parseParagraphComments(
+            Json.parseToJsonElement(
+                """[{
+                  "tsukkomiId":35702792,"row":0,"replyNum":10,"content":"主吐槽",
+                  "postUser":{"nickName":"楼主"},
+                  "expand":{"replys":[
+                    {"replyId":12993575,"content":"第一条[em:sfgirl:007]",
+                     "replyDate":"2026-06-05T13:24:30",
+                     "replyUser":{"nickName":"归烟35","expand":{"avatar":"https://example.com/a.jpg"}},
+                     "roleName":"灰烬"},
+                    {"replyId":12529185,"content":"回复@楼主 第二条",
+                     "replyDate":"2025-08-24T17:40:48",
+                     "replyUser":{"nickName":"咸鱼XI"},"roleName":"灰烬"},
+                    {"replyId":12993575,"content":"重复条目","replyUser":{"nickName":"重复"}},
+                    {"replyId":1,"content":""}
+                  ]}
+                }]"""
+            )
+        )
+        val comment = parsed.single()
+        assertEquals(2, comment.replies.size)
+        assertEquals("12993575", comment.replies[0].id)
+        assertEquals("归烟35", comment.replies[0].displayName)
+        assertEquals("https://example.com/a.jpg", comment.replies[0].avatar)
+        assertEquals("第一条[表情]", comment.replies[0].content)
+        assertEquals("2026-06-05 13:24:30", comment.replies[0].createTime)
+        assertEquals("灰烬", comment.replies[0].roleName)
     }
 }

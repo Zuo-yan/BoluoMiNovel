@@ -115,6 +115,13 @@ object Paginator {
         return pages.ifEmpty { listOf(ReaderPage(emptyList())) }
     }
 
+    /**
+     * Preserve server paragraph rows. SF's `tsukkomi.row` index counts blank
+     * rows too; filtering blanks would shift every later badge onto the wrong
+     * paragraph. Consumers skip blank paragraphs while rendering/speaking.
+     */
     fun splitParagraphs(content: String): List<String> =
-        content.split(Regex("\n+")).map { it.trim() }.filter { it.isNotEmpty() }
+        content.replace("\r\n", "\n").replace('\r', '\n')
+            .split('\n')
+            .map { it.trim() }
 }

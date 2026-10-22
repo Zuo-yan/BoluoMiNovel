@@ -36,8 +36,16 @@ class BookRepository @Inject constructor(
     suspend fun getChapters(bookId: String): List<ChapterEntity> = chapterDao.getByBook(bookId)
     suspend fun getChapter(id: String): ChapterEntity? = chapterDao.getById(id)
     suspend fun readableChapter(id: String): ChapterEntity = sfLibrary.readable(id)
-    suspend fun remoteParagraphComments(chapterId: String, sort: String) =
-        sfSession.paragraphComments(chapterId, sort = sort)
+    suspend fun readableChapterWithComments(
+        id: String
+    ): Pair<ChapterEntity, List<com.novelai.assistant.data.sf.SfParagraphCommentSummary>> =
+        sfLibrary.readableWithComments(id)
+    suspend fun remoteParagraphComments(
+        chapterId: String,
+        sort: String,
+        row: Int? = null,
+        page: Int = 1
+    ) = sfSession.paragraphComments(chapterId, page = page, sort = sort, row = row)
 
     suspend fun import(uri: Uri): BookImportManager.ImportResult = importManager.importFromUri(uri)
 

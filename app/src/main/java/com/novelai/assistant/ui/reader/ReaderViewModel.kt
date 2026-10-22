@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -97,6 +98,8 @@ class ReaderViewModel @Inject constructor(
     val paragraphComments = _paragraphComments.asStateFlow()
     private val _paragraphCommentsLoading = MutableStateFlow(false)
     val paragraphCommentsLoading = _paragraphCommentsLoading.asStateFlow()
+    private val _paragraphCommentsLoadingMore = MutableStateFlow(false)
+    val paragraphCommentsLoadingMore = _paragraphCommentsLoadingMore.asStateFlow()
     private val _paragraphCommentsError = MutableStateFlow<String?>(null)
     val paragraphCommentsError = _paragraphCommentsError.asStateFlow()
     private val _paragraphCommentsSort = MutableStateFlow("hot")
@@ -105,7 +108,14 @@ class ReaderViewModel @Inject constructor(
     val paragraphCommentsOpen = _paragraphCommentsOpen.asStateFlow()
     private val _paragraphCommentsQuote = MutableStateFlow("")
     val paragraphCommentsQuote = _paragraphCommentsQuote.asStateFlow()
+    private val _paragraphCommentsRow = MutableStateFlow<Int?>(null)
+    val paragraphCommentsRow = _paragraphCommentsRow.asStateFlow()
+    private val _paragraphCommentCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val paragraphCommentCounts = _paragraphCommentCounts.asStateFlow()
+    private val _expandedParagraphReplies = MutableStateFlow<Set<String>>(emptySet())
+    val expandedParagraphReplies = _expandedParagraphReplies.asStateFlow()
     private var paragraphCommentsJob: Job? = null
+    private var paragraphCommentsPage = 0
 
     // 目录树（分支缩进）
     val tocItems: StateFlow<List<TocItem>> =
@@ -127,17 +137,42 @@ class ReaderViewModel @Inject constructor(
     fun retryChapter() { reload.value++ }
 
     init {
+        var summaryChapterId: String? = null
+        var summaryRequestedFor: String? = null
         viewModelScope.launch {
             combine(currentChapter, reload) { chapter, retry -> Triple(chapter?.id, chapter?.content?.isBlank(), retry) }
                 .distinctUntilChanged().collectLatest { (id, empty, _) ->
                     _chapterError.value = null
                     _chapterFailureKind.value = null
-                    if (id != null && empty == true) {
-                        try { bookRepository.readableChapter(id) }
+                    if (id != summaryChapterId) {
+                        summaryChapterId = id
+                        summaryRequestedFor = null
+                        _paragraphCommentCounts.value = emptyMap()
+                    }
+                    if (id != null) {
+                        try {
+                            val source = bookRepository.getBook(bookId)
+                            if (source?.sourceType == com.novelai.assistant.data.db.BookSourceType.BOLUOBAO &&
+                                summaryRequestedFor != id
+                            ) {
+                                summaryRequestedFor = id
+                                val (_, summaries) = bookRepository.readableChapterWithComments(id)
+                                if (summaryChapterId == id) {
+                                    _paragraphCommentCounts.value = summaries.associate { it.row to it.count }
+                                }
+                            } else if (empty == true) {
+                                bookRepository.readableChapter(id)
+                            }
+                        }
                         catch (e: kotlinx.coroutines.CancellationException) { throw e }
                         catch (e: Exception) {
                             _chapterFailureKind.value = (e as? com.novelai.assistant.data.sf.SfException)?.kind
                             _chapterError.value = e.message ?: "正文加载失败"
+                            // A bounds error must not make the reader look permanently
+                            // unreadable when only the optional comment summary failed.
+                            if (empty != true && e !is com.novelai.assistant.data.sf.SfException) {
+                                summaryRequestedFor = null
+                            }
                         }
                     }
                 }
@@ -305,7 +340,10 @@ class ReaderViewModel @Inject constructor(
             onTtsChapterEnd()
             return
         }
-        val validIndex = startIndex.coerceIn(0, paragraphs.lastIndex)
+        val firstReadable = paragraphs.indexOfFirst { it.isNotBlank() }.coerceAtLeast(0)
+        var validIndex = startIndex.coerceIn(0, paragraphs.lastIndex)
+        while (validIndex in paragraphs.indices && paragraphs[validIndex].isBlank()) validIndex++
+        if (validIndex !in paragraphs.indices) validIndex = firstReadable
         ttsPlayer.play(
             paragraphs = paragraphs,
             startIndex = validIndex,
@@ -434,14 +472,19 @@ class ReaderViewModel @Inject constructor(
 
     fun openParagraphComments(
         sort: String = _paragraphCommentsSort.value,
-        quote: String = _paragraphCommentsQuote.value
+        quote: String = _paragraphCommentsQuote.value,
+        row: Int? = _paragraphCommentsRow.value ?: _quotedParaIndex.value
     ) {
         val chapter = currentChapter.value ?: return
         _paragraphCommentsQuote.value = quote
+        _paragraphCommentsRow.value = row
         _paragraphCommentsSort.value = sort
         _paragraphCommentsOpen.value = true
         _paragraphCommentsLoading.value = true
+        _paragraphCommentsLoadingMore.value = false
         _paragraphCommentsError.value = null
+        paragraphCommentsPage = 0
+        _expandedParagraphReplies.value = emptySet()
         paragraphCommentsJob?.cancel()
         val remoteId = sfTsukkomiChapterId(chapter.id, chapter.remoteId)
         if (remoteId == null) {
@@ -451,8 +494,9 @@ class ReaderViewModel @Inject constructor(
         }
         paragraphCommentsJob = viewModelScope.launch {
             try {
-                val remote = bookRepository.remoteParagraphComments(remoteId, sort)
+                val remote = bookRepository.remoteParagraphComments(remoteId, sort, row)
                 _paragraphComments.value = remote
+                paragraphCommentsPage = 1
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
                 _paragraphComments.value = emptyList()
@@ -461,10 +505,51 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    fun loadMoreParagraphComments() {
+        if (_paragraphCommentsLoading.value || _paragraphCommentsLoadingMore.value) return
+        if (_paragraphComments.value.size < 20) return
+        val chapter = currentChapter.value ?: return
+        val remoteId = sfTsukkomiChapterId(chapter.id, chapter.remoteId) ?: return
+        val before = _paragraphComments.value
+        val nextPage = paragraphCommentsPage + 1
+        paragraphCommentsJob = viewModelScope.launch {
+            _paragraphCommentsLoadingMore.value = true
+            try {
+                val row = _paragraphCommentsRow.value
+                val page = bookRepository.remoteParagraphComments(
+                    remoteId,
+                    _paragraphCommentsSort.value,
+                    row,
+                    nextPage
+                )
+                val merged = (before + page).distinctBy { it.id }
+                _paragraphComments.value = merged
+                paragraphCommentsPage = nextPage
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _paragraphCommentsError.value = e.message ?: "更多间贴加载失败"
+            } finally {
+                _paragraphCommentsLoadingMore.value = false
+            }
+        }
+    }
+
+    fun toggleParagraphReplies(commentId: String) {
+        if (_paragraphComments.value.none { it.id == commentId && it.replies.isNotEmpty() }) return
+        _expandedParagraphReplies.update { current ->
+            if (commentId in current) current - commentId else current + commentId
+        }
+    }
+
     fun closeParagraphComments() {
         paragraphCommentsJob?.cancel()
         _paragraphCommentsOpen.value = false
         _paragraphCommentsLoading.value = false
+        _paragraphCommentsLoadingMore.value = false
+        paragraphCommentsPage = 0
+        _paragraphCommentsRow.value = null
+        _expandedParagraphReplies.value = emptySet()
     }
 
     fun playFromQuotedParagraph() {

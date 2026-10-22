@@ -68,7 +68,20 @@ data class SfParagraphComment(
     val createTime: String,
     val favCount: Int = 0,
     val replyNum: Int = 0,
+    val roleName: String = "",
+    val replies: List<SfParagraphReply> = emptyList()
+)
+data class SfParagraphReply(
+    val id: String,
+    val displayName: String,
+    val avatar: String?,
+    val content: String,
+    val createTime: String,
     val roleName: String = ""
+)
+data class SfParagraphCommentSummary(
+    val row: Int,
+    val count: Int
 )
 data class SfSignResult(val success: Boolean, val message: String)
 data class SfShelfBook(val id: String, val title: String, val author: String, val cover: String?, val shelf: String)
@@ -174,13 +187,54 @@ object SfProtocol {
         }
         val raw = data.text("content") + data.obj("expand").text("content")
         if (raw.isBlank()) throw SfException(SfFailureKind.UNPURCHASED, "未取得完整正文，请在官方 App 确认本章已购买")
-        val text = org.jsoup.Jsoup.parse(decode(raw).replace(Regex("<br\\s*/?>|</p>", RegexOption.IGNORE_CASE), "\n\n"))
-            .wholeText().trim()
+        val text = normalizeSfParagraphRows(decode(raw))
         if (text.isBlank() || Regex("^(请先登录|登录后阅读|购买本章|订阅本章)").containsMatchIn(text)) {
             throw SfException(SfFailureKind.UNPURCHASED, "本章没有可阅读正文，请确认订阅权限")
         }
         return text
     }
+
+    /**
+     * The App returns one server paragraph row per newline. Markdown-style
+     * paragraph breaks were doubling those rows and shifting `tsukkomi.row`.
+     */
+    fun normalizeSfParagraphRows(html: String): String =
+        org.jsoup.Jsoup.parse(
+            html.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+                .replace(Regex("</p\\s*>", RegexOption.IGNORE_CASE), "\n")
+        ).wholeText().replace("\r\n", "\n").replace('\r', '\n').trim()
+
+    /**
+     * Chapter responses expose an `expand.tsukkomi` summary with row/count.
+     * This is the only field that ties comments to paragraph positions; the
+     * paged comment endpoint itself does not provide a reliable row mapping.
+     */
+    fun paragraphCommentSummaries(data: JsonObject): List<SfParagraphCommentSummary> {
+        val expand = data.obj("expand")
+        val items = when (val value = expand["tsukkomi"]) {
+            is JsonArray -> value
+            is JsonObject -> value.array("items")
+            else -> emptyList()
+        }
+        return items.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val row = item.text("row").toIntOrNull() ?: item.text("paraIndex").toIntOrNull()
+            val count = item.text("count").toIntOrNull() ?: item.text("tsukkomiCount").toIntOrNull()
+            if (row == null || row < 0 || count == null || count <= 0) null
+            else SfParagraphCommentSummary(row, count)
+        }.groupBy { it.row }.map { (row, grouped) ->
+            // If the server supplies multiple entries for one row, use the
+            // largest count instead of summing and inventing duplicate totals.
+            SfParagraphCommentSummary(row, grouped.maxOf { it.count })
+        }.sortedBy { it.row }
+    }
+
+    fun chapterContentAndCommentSummaries(
+        data: JsonObject,
+        paid: Boolean,
+        decode: (String) -> String
+    ): Pair<String, List<SfParagraphCommentSummary>> =
+        content(data, paid, decode) to paragraphCommentSummaries(data)
 
     fun parseSearchResult(obj: JsonObject): SfSearchResult? {
         val id = obj.text("novelId").ifBlank { obj.text("id") }
@@ -246,9 +300,53 @@ object SfProtocol {
                     ?: obj.text("likeCount").toIntOrNull()
                     ?: 0,
                 replyNum = obj.text("replyNum").toIntOrNull() ?: 0,
-                roleName = obj.text("roleName").ifBlank { obj.text("title") }
+                roleName = obj.text("roleName").ifBlank { obj.text("title") },
+                replies = parseParagraphReplies(obj)
             )
         }
+    }
+
+    fun parseParagraphReplies(comment: JsonObject): List<SfParagraphReply> {
+        val candidates = sequenceOf(
+            comment.obj("expand")["replys"],
+            comment["replys"],
+            comment["replies"],
+            comment["replyInfos"],
+            comment["replyInfo"]
+        )
+        val items = candidates
+            .filterIsInstance<JsonArray>()
+            .firstOrNull()
+            ?: return emptyList()
+        return items.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            val id = obj.text("replyId").ifBlank { obj.text("tsukkomiReplyId") }
+                .ifBlank { obj.text("id") }
+            val content = obj.text("content").ifBlank { obj.text("replyContent") }
+                .let(::plainComment)
+            if (id.isBlank() || content.isBlank()) return@mapNotNull null
+            val user = obj["replyUser"] as? JsonObject
+                ?: obj["postUser"] as? JsonObject
+                ?: obj["user"] as? JsonObject
+                ?: obj.obj("expand")["user"] as? JsonObject
+            SfParagraphReply(
+                id = id,
+                displayName = user?.text("nickName").orEmpty()
+                    .ifBlank { obj.text("displayName") }
+                    .ifBlank { "菠萝包读者" },
+                avatar = user?.text("avatar").orEmpty()
+                    .ifBlank { user?.obj("expand")?.text("avatar").orEmpty() }
+                    .ifBlank { obj.text("avatar") }
+                    .takeIf { it.isNotBlank() },
+                content = content,
+                createTime = obj.text("replyDate")
+                    .ifBlank { obj.text("postDate") }
+                    .ifBlank { obj.text("createTime") }
+                    .replace("T", " ")
+                    .substringBefore('.'),
+                roleName = obj.text("roleName").ifBlank { obj.text("title") }
+            )
+        }.distinctBy { it.id }
     }
 
     private fun plainComment(raw: String): String =
@@ -384,6 +482,21 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
         return SfProtocol.content(data, paid, decode)
     }
 
+    suspend fun chapterWithComments(
+        id: String,
+        cookie: String,
+        paid: Boolean,
+        decode: (String) -> String
+    ): Pair<String, List<SfParagraphCommentSummary>> {
+        require(id.matches(Regex("\\d+")))
+        if (paid && cookie.isBlank()) throw SfException(SfFailureKind.AUTH, "请先登录菠萝包账号，再读取已购章节")
+        val data = request(
+            "Chaps/$id?expand=content%2Cexpand.content%2Ctsukkomi%2Cchatlines&autoOrder=false",
+            if (paid) cookie else ""
+        ).first.jsonObject
+        return SfProtocol.chapterContentAndCommentSummaries(data, paid, decode)
+    }
+
     suspend fun search(keyword: String, page: Int = 1, size: Int = 20): List<SfSearchResult> {
         val q = java.net.URLEncoder.encode(keyword.trim(), "UTF-8")
         val data = request("search/novels/result?q=$q&page=$page&size=$size&expand=sysTags,tags,intro,bigNovelCover").first
@@ -445,11 +558,13 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
     }
 
     suspend fun paragraphComments(chapterId: String, page: Int = 1, size: Int = 20,
-                                  sort: String = "hot"): List<SfParagraphComment> {
+                                  sort: String = "hot", row: Int? = null): List<SfParagraphComment> {
         require(chapterId.matches(Regex("\\d+")) && page > 0 && size in 1..50)
         val p0 = page - 1
         val order = if (sort == "new") "addtime" else "hot"
-        val data = request("chaps/0/$chapterId/tsukkomis?page=$p0&size=$size&sort=$order").first
+        val rowQuery = row?.takeIf { it >= 0 }?.let { "&row=$it" }.orEmpty()
+        val expand = "&expand=vipLevel%2Cavatar%2CroleName%2Cwidgets%2Cgrowup%2Creplys"
+        val data = request("chaps/0/$chapterId/tsukkomis?page=$p0&size=$size&sort=$order$rowQuery$expand").first
         return SfProtocol.parseParagraphComments(data)
     }
 
@@ -569,8 +684,18 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
         val numId = novelId.removePrefix("sf:")
         require(numId.matches(Regex("\\d+"))) { "无效书号" }
         val p0 = (page - 1).coerceAtLeast(0)
-        val data = request("novels/$numId/Cmts?page=$p0&size=$size").first
-        val list = if (data is JsonArray) data else (data as? JsonObject)?.array("cmts") ?: emptyList()
+        val data = request("novels/$numId/Cmts?page=$p0&size=$size&type=clear&sort=smart&replyUserId=0").first
+        return parseNovelComments(data)
+    }
+
+    fun parseNovelComments(data: JsonElement): List<SfComment> {
+        val list = when (data) {
+            is JsonArray -> data
+            is JsonObject -> data.array("cmts")
+                .ifEmpty { data.array("comments") }
+                .ifEmpty { data.array("items") }
+            else -> emptyList()
+        }
         return list.mapNotNull { element ->
             val obj = element as? JsonObject ?: return@mapNotNull null
             val id = obj.text("commentId")
@@ -582,7 +707,10 @@ class SfApi(private val transport: SfTransport, private val device: String, val 
             val reply = obj.text("replyNum").toIntOrNull() ?: 0
             val vip = obj.text("vipLevel").toIntOrNull() ?: 0
             val stick = obj.flag("isStick")
-            SfComment(id, name, avatar, content, time, fav, reply, vip, stick)
+            SfComment(
+                id.ifBlank { "${obj.text("accountId")}:${obj.text("createTime")}" },
+                name, avatar, content, time, fav, reply, vip, stick
+            )
         }
     }
 }

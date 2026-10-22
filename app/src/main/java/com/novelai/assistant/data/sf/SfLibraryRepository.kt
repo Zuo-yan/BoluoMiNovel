@@ -62,4 +62,32 @@ class SfLibraryRepository @Inject constructor(
                 throw e
             }
         }
+
+    /**
+     * Load the chapter once for read/cache, along with row/count summaries.
+     * Cached text is still paired with a fresh anonymous summary request so
+     * comment badges do not become stale; failures only affect the badges.
+     */
+    suspend fun readableWithComments(
+        chapterId: String
+    ): Pair<ChapterEntity, List<SfParagraphCommentSummary>> =
+        locks.getOrPut(chapterId) { Mutex() }.withLock {
+            val chapter = db.chapterDao().getById(chapterId) ?: error("章节已被删除")
+            val remoteId = chapter.remoteId ?: return@withLock chapter to emptyList()
+            var loaded = chapter
+            if (chapter.content.isBlank()) {
+                val (content, summaries) = session.chapterWithComments(remoteId, chapter.isPaid)
+                db.chapterDao().cacheRemote(chapter.id, content, false)
+                loaded = chapter.copy(content = content, fetchError = "")
+                loaded to summaries
+            } else {
+                // A cached chapter does not contain server metadata. Fetch just
+                // the summary fields as part of this one read; if the optional
+                // response cannot be read, return text without inventing badges.
+                val summaries = runCatching {
+                    session.chapterWithComments(remoteId, chapter.isPaid).second
+                }.getOrDefault(emptyList())
+                loaded to summaries
+            }
+        }
 }

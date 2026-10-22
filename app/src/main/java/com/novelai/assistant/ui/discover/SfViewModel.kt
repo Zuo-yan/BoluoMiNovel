@@ -19,6 +19,12 @@ data class SfBrowserState(
     val localBookId: String? = null, val destination: String = ""
 )
 
+internal fun mergeSfComments(
+    existing: List<SfComment>,
+    nextPage: List<SfComment>
+): List<SfComment> = (existing + nextPage).distinctBy { it.id }
+internal const val SF_COMMENTS_PAGE_SIZE = 20
+
 @HiltViewModel
 class SfViewModel @Inject constructor(
     private val session: SfSessionRepository,
@@ -70,6 +76,12 @@ class SfViewModel @Inject constructor(
     // 评论状态
     val comments = MutableStateFlow<List<SfComment>>(emptyList())
     val isCommentsLoading = MutableStateFlow(false)
+    val isCommentsLoadingMore = MutableStateFlow(false)
+    val commentsHasMore = MutableStateFlow(false)
+    val commentsError = MutableStateFlow<String?>(null)
+    private var commentsBookId: String? = null
+    private var commentsPage = 0
+    private var commentsJob: Job? = null
     val authorNovels = MutableStateFlow<List<SfSearchResult>>(emptyList())
     val isAuthorLoading = MutableStateFlow(false)
     val authorError = MutableStateFlow<String?>(null)
@@ -218,19 +230,58 @@ class SfViewModel @Inject constructor(
 
     fun loadComments(novelId: String) {
         val remoteId = novelId.removePrefix("sf:")
+        commentsJob?.cancel()
+        commentsBookId = remoteId
+        commentsPage = 0
+        comments.value = emptyList()
+        commentsHasMore.value = false
+        commentsError.value = null
         if (!remoteId.matches(Regex("\\d+"))) {
-            comments.value = emptyList()
             return
         }
         isCommentsLoading.value = true
-        viewModelScope.launch {
+        commentsJob = viewModelScope.launch {
             try {
                 val list = session.novelComments(remoteId, 1)
-                comments.value = list
-            } catch (_: Exception) {
-                comments.value = emptyList()
+                if (commentsBookId != remoteId) return@launch
+                comments.value = mergeSfComments(emptyList(), list)
+                commentsPage = 1
+                commentsHasMore.value = list.size >= SF_COMMENTS_PAGE_SIZE
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (commentsBookId == remoteId) {
+                    commentsError.value = e.message ?: "书评加载失败"
+                }
             } finally {
-                isCommentsLoading.value = false
+                if (commentsBookId == remoteId) isCommentsLoading.value = false
+            }
+        }
+    }
+
+    fun loadMoreComments() {
+        if (isCommentsLoading.value || isCommentsLoadingMore.value || !commentsHasMore.value) return
+        val remoteId = commentsBookId ?: return
+        val nextPage = commentsPage + 1
+        commentsJob = viewModelScope.launch {
+            isCommentsLoadingMore.value = true
+            commentsError.value = null
+            try {
+                val list = session.novelComments(remoteId, nextPage)
+                if (commentsBookId != remoteId) return@launch
+                val before = comments.value
+                val merged = mergeSfComments(before, list)
+                comments.value = merged
+                commentsPage = nextPage
+                // A short or duplicate-only page marks the end. This prevents
+                // an infinite "load more" loop on an unsupported cursor.
+                commentsHasMore.value = list.size >= SF_COMMENTS_PAGE_SIZE && merged.size > before.size
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (commentsBookId == remoteId) commentsError.value = e.message ?: "更多书评加载失败"
+            } finally {
+                if (commentsBookId == remoteId) isCommentsLoadingMore.value = false
             }
         }
     }

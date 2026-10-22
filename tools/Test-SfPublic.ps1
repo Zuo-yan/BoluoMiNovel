@@ -17,7 +17,12 @@ function Get-SfSign([string]$nonce, [long]$timestamp) {
         elseif (($n -gt 57 -and $n -lt 65) -or ($n -gt 90 -and $n -lt 97)) { $normal += [char]($n+19) }
         else { $normal += $c }
     }
-    [Convert]::ToHexString([System.Security.Cryptography.MD5]::HashData([Text.Encoding]::UTF8.GetBytes($normal)))
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    try {
+        ([BitConverter]::ToString($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($normal)))).Replace('-', '')
+    } finally {
+        $md5.Dispose()
+    }
 }
 function Get-SfPublic([string]$path) {
     for ($attempt=0; $attempt -lt 3; $attempt++) {
@@ -30,11 +35,17 @@ function Get-SfPublic([string]$path) {
             'User-Agent'="boluobao/5.2.16(android;35)/OPPO/$($device.ToLowerInvariant())/OPPO"
             'sfsecurity'="nonce=$nonce&timestamp=$timestamp&devicetoken=$device&sign=$(Get-SfSign $nonce $timestamp)"
         }
-        $response=Invoke-WebRequest "https://api.sfacg.com/$path" -Headers $headers -SkipHeaderValidation -TimeoutSec 25 -SkipHttpErrorCheck
-        $payload=$response.Content | ConvertFrom-Json
-        if ($response.StatusCode -eq 429 -or $payload.status.httpCode -eq 429 -or $payload.status.errorCode -eq 1148) { throw 'Platform rate limit or verification: probe stopped' }
+        Add-Type -AssemblyName System.Net.Http
+        $client = New-Object System.Net.Http.HttpClient
+        $request = New-Object System.Net.Http.HttpRequestMessage ([System.Net.Http.HttpMethod]::Get), "https://api.sfacg.com/$path"
+        foreach ($name in $headers.Keys) { [void]$request.Headers.TryAddWithoutValidation($name, [string]$headers[$name]) }
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        $content = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $payload=$content | ConvertFrom-Json
+        $client.Dispose()
+        if ([int]$response.StatusCode -eq 429 -or $payload.status.httpCode -eq 429 -or $payload.status.errorCode -eq 1148) { throw 'Platform rate limit or verification: probe stopped' }
         if ($payload.status.httpCode -eq 417) { continue }
-        if ($payload.status.httpCode -ne 200) { throw "SF returned HTTP $($response.StatusCode), status $($payload.status.httpCode), code $($payload.status.errorCode)" }
+        if ($payload.status.httpCode -ne 200) { throw "SF returned HTTP $([int]$response.StatusCode), status $($payload.status.httpCode), code $($payload.status.errorCode)" }
         $script:LastAttempts = $attempt + 1
         return ,$payload.data
     }
@@ -46,6 +57,7 @@ if ($ProbeRoutes.Count -gt 0) {
     foreach ($route in $ProbeRoutes) {
         if ($probeIndex -gt 0) { Start-Sleep -Seconds 2 }
         if ($route -notmatch '^(noveltypes(?:\?|$)|novels/|novel/|users/\d+/(novels|dynamics)|chaps/0/\d+/tsukkomis|Chaps/|ranks/|search/)') { throw 'Probe accepts only known public read routes' }
+        if ($route -match '(?i)(?:\?|&)(?:method|action|order|buy|pay|like|reply|follow|comment)=') { throw 'Probe accepts read-only routes only' }
         $data = Get-SfPublic $route
         $probeIndex++
         ConvertTo-Json -InputObject $data -Depth 30 | Set-Content "build/sf-probe-$probeIndex.json" -Encoding utf8

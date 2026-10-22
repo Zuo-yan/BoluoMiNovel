@@ -96,6 +96,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Switch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
@@ -113,6 +114,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
@@ -167,9 +170,12 @@ fun ReaderScreen(
     val paragraphCommentsQuote by viewModel.paragraphCommentsQuote.collectAsStateWithLifecycle()
     val paragraphComments by viewModel.paragraphComments.collectAsStateWithLifecycle()
     val paragraphCommentsLoading by viewModel.paragraphCommentsLoading.collectAsStateWithLifecycle()
+    val paragraphCommentsLoadingMore by viewModel.paragraphCommentsLoadingMore.collectAsStateWithLifecycle()
     val paragraphCommentsError by viewModel.paragraphCommentsError.collectAsStateWithLifecycle()
     val paragraphCommentsSort by viewModel.paragraphCommentsSort.collectAsStateWithLifecycle()
     val paragraphCommentsOpen by viewModel.paragraphCommentsOpen.collectAsStateWithLifecycle()
+    val paragraphCommentCounts by viewModel.paragraphCommentCounts.collectAsStateWithLifecycle()
+    val expandedParagraphReplies by viewModel.expandedParagraphReplies.collectAsStateWithLifecycle()
     val ttsSpeaking by viewModel.ttsSpeaking.collectAsStateWithLifecycle()
     val ttsPaused by viewModel.ttsPaused.collectAsStateWithLifecycle()
     val ttsReady by viewModel.ttsReady.collectAsStateWithLifecycle()
@@ -312,6 +318,12 @@ fun ReaderScreen(
                         isDarkReader = isDarkReader,
                         onToggleChrome = { viewModel.toggleChrome() },
                         onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
+                        commentCounts = paragraphCommentCounts,
+                        onOpenComments = { text, idx ->
+                            viewModel.quoteParagraph(text, idx)
+                            viewModel.openParagraphComments(quote = text, row = idx)
+                            viewModel.clearQuote()
+                        },
                         onPageTurn = {
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             viewModel.scheduleProgressSave()
@@ -338,6 +350,12 @@ fun ReaderScreen(
                         isDarkReader = isDarkReader,
                         onToggleChrome = { viewModel.toggleChrome() },
                         onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
+                        commentCounts = paragraphCommentCounts,
+                        onOpenComments = { text, idx ->
+                            viewModel.quoteParagraph(text, idx)
+                            viewModel.openParagraphComments(quote = text, row = idx)
+                            viewModel.clearQuote()
+                        },
                         onProgress = { viewModel.scheduleProgressSave() },
                         onVisibleParaChange = { currentVisibleParaIndex = it },
                         selectionMode = selectionMode
@@ -685,10 +703,13 @@ fun ReaderScreen(
                         viewModel.clearQuote()
                         onAsk(viewModel.bookId, text, "AI吐槽")
                     }
-                    QuoteChip("本章间贴", Icons.Rounded.Forum, Color(0xFFE91E63)) {
-                        val quote = quotedText.orEmpty()
-                        viewModel.clearQuote()
-                        viewModel.openParagraphComments(quote = quote)
+                    if (book?.sourceType == com.novelai.assistant.data.db.BookSourceType.BOLUOBAO) {
+                        QuoteChip("本章间贴", Icons.Rounded.Forum, Color(0xFFE91E63)) {
+                            val quote = quotedText.orEmpty()
+                            val row = viewModel.quotedParaIndex.value
+                            viewModel.clearQuote()
+                            viewModel.openParagraphComments(quote = quote, row = row)
+                        }
                     }
                     QuoteChip("选段伴读", Icons.Rounded.AutoAwesome, Color(0xFF7C4DFF)) {
                         val text = quotedText ?: ""
@@ -714,11 +735,15 @@ fun ReaderScreen(
             ParagraphCommentsSheet(
                 comments = paragraphComments,
                 loading = paragraphCommentsLoading,
+                loadingMore = paragraphCommentsLoadingMore,
                 error = paragraphCommentsError,
                 sort = paragraphCommentsSort,
                 paragraph = paragraphCommentsQuote,
                 chapterTitle = currentChapter?.title.orEmpty(),
+                expandedReplies = expandedParagraphReplies,
                 onSort = { viewModel.openParagraphComments(it) },
+                onLoadMore = { viewModel.loadMoreParagraphComments() },
+                onToggleReplies = { viewModel.toggleParagraphReplies(it) },
                 onRetry = { viewModel.openParagraphComments(quote = paragraphCommentsQuote) },
                 onDismiss = { viewModel.closeParagraphComments() }
             )
@@ -1082,11 +1107,15 @@ private fun QuoteChip(
 private fun ParagraphCommentsSheet(
     comments: List<com.novelai.assistant.data.sf.SfParagraphComment>,
     loading: Boolean,
+    loadingMore: Boolean,
     error: String?,
     sort: String,
     paragraph: String,
     chapterTitle: String,
+    expandedReplies: Set<String>,
     onSort: (String) -> Unit,
+    onLoadMore: () -> Unit,
+    onToggleReplies: (String) -> Unit,
     onRetry: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1145,7 +1174,7 @@ private fun ParagraphCommentsSheet(
             } else {
                 LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(comments, key = { it.id }) { comment ->
+                    itemsIndexed(comments, key = { _, comment -> comment.id }) { index, comment ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.Top) {
                             SfAvatar(comment.avatar, comment.displayName, Modifier.size(36.dp))
@@ -1163,13 +1192,89 @@ private fun ParagraphCommentsSheet(
                                     horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text(comment.createTime, style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.outline)
-                                    Text("赞 ${comment.favCount} · 回复 ${comment.replyNum}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline)
+                                    if (comment.replies.isNotEmpty()) {
+                                        TextButton(
+                                            onClick = { onToggleReplies(comment.id) },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                            modifier = Modifier.heightIn(min = 36.dp)
+                                        ) {
+                                            Text(
+                                                if (comment.id in expandedReplies) "收起回复"
+                                                else "查看 ${comment.replies.size} 条回复",
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                    } else {
+                                        Text("赞 ${comment.favCount}" + if (comment.replyNum > 0) " · 回复 ${comment.replyNum}" else "",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline)
+                                    }
+                                }
+                                if (comment.id in expandedReplies && comment.replies.isNotEmpty()) {
+                                    Column(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 8.dp, top = 2.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        comment.replies.forEach { reply ->
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                                            ) {
+                                                Row(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(10.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.Top
+                                                ) {
+                                                    SfAvatar(reply.avatar, reply.displayName, Modifier.size(26.dp))
+                                                    Column(Modifier.weight(1f),
+                                                        verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(reply.displayName,
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                fontWeight = FontWeight.Medium)
+                                                            if (reply.roleName.isNotBlank()) Text(reply.roleName,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.primary)
+                                                        }
+                                                        Text(reply.content,
+                                                            style = MaterialTheme.typography.bodySmall)
+                                                        Text(reply.createTime,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.outline)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (comment.replyNum > comment.replies.size) {
+                                            Text(
+                                                "官方间贴展开仅返回最近 ${comment.replies.size} 条回复",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
+                        if (index < comments.lastIndex) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
+                        }
+                    }
+                    if (comments.size >= 20 && !loadingMore) {
+                        item("load-more") {
+                            TextButton(
+                                onClick = { onLoadMore() },
+                                enabled = !loadingMore,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (loadingMore) "正在加载更多…" else "加载更多间贴")
+                            }
+                        }
                     }
                 }
             }
@@ -1196,6 +1301,53 @@ private fun androidx.compose.foundation.layout.RowScope.ReaderBarAction(
     }
 }
 
+/**
+ * A quiet, persistent affordance beside paragraphs that have discussions.
+ * Zero-count rows remain visually empty, so local/plain chapters do not gain
+ * noise or misleading controls.
+ */
+@Composable
+private fun InlineTsukkomiMarker(
+    count: Int,
+    dark: Boolean,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (count <= 0) return
+    val accent = if (dark) Color(0xFFFF8AA4) else Color(0xFFD94F70)
+    Box(
+        modifier = modifier
+            .width(26.dp)
+            .heightIn(min = 32.dp)
+            .clickable(onClick = onOpen)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$count 条段落吐槽，点击查看"
+            },
+        contentAlignment = Alignment.TopEnd
+    ) {
+        Icon(
+            Icons.Rounded.Forum,
+            contentDescription = null,
+            tint = accent.copy(alpha = 0.82f),
+            modifier = Modifier
+                .padding(top = 5.dp)
+                .size(17.dp)
+        )
+        Badge(
+            containerColor = accent,
+            contentColor = Color.White,
+            modifier = Modifier.semantics { contentDescription = "" }
+        ) {
+            Text(
+                if (count > 99) "99+" else count.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                modifier = Modifier.semantics { contentDescription = "" }
+            )
+        }
+    }
+}
+
 /** 翻页模式 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1213,6 +1365,8 @@ private fun PagedContent(
     isDarkReader: Boolean,
     onToggleChrome: () -> Unit,
     onQuote: (String, Int) -> Unit,
+    commentCounts: Map<Int, Int>,
+    onOpenComments: (String, Int) -> Unit,
     onPageTurn: () -> Unit,
     onVisibleParaChange: (Int) -> Unit,
     onNextChapter: () -> Unit,
@@ -1407,32 +1561,45 @@ private fun PagedContent(
                                 else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             } else Color.Transparent
 
-                            if (selectionMode) {
-                                Text(
-                                    text = frag.text,
-                                    style = readerStyle,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(highlightBg, MaterialTheme.shapes.small)
-                                )
+                            val textModifier = if (selectionMode) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(highlightBg, MaterialTheme.shapes.small)
                             } else {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(highlightBg, MaterialTheme.shapes.small)
+                                    .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pages.size, hasNextChapter, hasPrevChapter) {
+                                        detectTapGestures(
+                                            onLongPress = { onQuote(paragraphs[frag.paraIndex], frag.paraIndex) },
+                                            onTap = { offset ->
+                                                val screenX = offset.x + with(density) { settings.horizontalPaddingDp.dp.toPx() }
+                                                val screenWidth = size.width + with(density) { (settings.horizontalPaddingDp * 2).dp.toPx() }
+                                                handleTap(screenX, screenWidth)
+                                            }
+                                        )
+                                    }
+                            }
+                            val markerCount = commentCounts[frag.paraIndex] ?: 0
+                            Box(Modifier.fillMaxWidth()) {
                                 Text(
                                     text = frag.text,
                                     style = readerStyle,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(highlightBg, MaterialTheme.shapes.small)
-                                        .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pages.size, hasNextChapter, hasPrevChapter) {
-                                            detectTapGestures(
-                                                onLongPress = { onQuote(paragraphs[frag.paraIndex], frag.paraIndex) },
-                                                onTap = { offset ->
-                                                    val screenX = offset.x + with(density) { settings.horizontalPaddingDp.dp.toPx() }
-                                                    val screenWidth = size.width + with(density) { (settings.horizontalPaddingDp * 2).dp.toPx() }
-                                                    handleTap(screenX, screenWidth)
-                                                }
-                                            )
-                                        }
+                                    modifier = if (markerCount > 0) {
+                                        textModifier
+                                            .padding(end = 28.dp)
+                                    } else textModifier
                                 )
+                                if (commentCounts[frag.paraIndex] ?: 0 > 0) {
+                                    InlineTsukkomiMarker(
+                                        count = commentCounts[frag.paraIndex] ?: 0,
+                                        dark = isDarkReader,
+                                        onOpen = {
+                                            onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex)
+                                        },
+                                        modifier = Modifier.align(Alignment.TopEnd)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1467,6 +1634,8 @@ private fun ScrollContent(
     isDarkReader: Boolean,
     onToggleChrome: () -> Unit,
     onQuote: (String, Int) -> Unit,
+    commentCounts: Map<Int, Int>,
+    onOpenComments: (String, Int) -> Unit,
     onProgress: () -> Unit,
     onVisibleParaChange: (Int) -> Unit,
     selectionMode: Boolean
@@ -1502,6 +1671,10 @@ private fun ScrollContent(
             .pointerInput(Unit) { detectTapGestures(onTap = { onToggleChrome() }) }
     ) {
         itemsIndexed(paragraphs) { index, para ->
+            if (para.isBlank()) {
+                Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
+                return@itemsIndexed
+            }
             val isTtsSpeakingThis = (ttsSpeaking || ttsPaused) && index == ttsPosition
             val highlightBg = if (isTtsSpeakingThis) {
                 if (isDarkReader) Color(0xFF9A97FF).copy(alpha = 0.22f)
@@ -1519,7 +1692,10 @@ private fun ScrollContent(
                 highlightBg = highlightBg,
                 selectionMode = selectionMode,
                 onTap = onToggleChrome,
-                onLongPress = { onQuote(para, index) }
+                onLongPress = { onQuote(para, index) },
+                commentCount = commentCounts[index] ?: 0,
+                dark = isDarkReader,
+                onOpenComments = { onOpenComments(para, index) }
             )
             Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
         }
@@ -1538,28 +1714,38 @@ private fun ParagraphText(
     highlightBg: Color = Color.Transparent,
     selectionMode: Boolean,
     onTap: () -> Unit,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    commentCount: Int = 0,
+    dark: Boolean = false,
+    onOpenComments: () -> Unit = {}
 ) {
-    if (selectionMode) {
-        Text(
-            text = text,
-            style = style,
-            modifier = Modifier
+    Box(Modifier.fillMaxWidth()) {
+        val textModifier = if (selectionMode) {
+            Modifier
                 .fillMaxWidth()
                 .background(highlightBg, MaterialTheme.shapes.small)
-        )
-    } else {
-        Text(
-            text = text,
-            style = style,
-            modifier = Modifier
+        } else {
+            Modifier
                 .fillMaxWidth()
                 .background(highlightBg, MaterialTheme.shapes.small)
                 .combinedClickable(
                     onClick = onTap,
                     onLongClick = onLongPress
                 )
+        }
+        Text(
+            text = text,
+            style = style,
+            modifier = if (commentCount > 0) textModifier.padding(end = 28.dp) else textModifier
         )
+        if (commentCount > 0) {
+            InlineTsukkomiMarker(
+                count = commentCount,
+                dark = dark,
+                onOpen = onOpenComments,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+        }
     }
 }
 

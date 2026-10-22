@@ -50,6 +50,9 @@ fun SfBookDetailScreen(
     val isDetailLoading by viewModel.isDetailLoading.collectAsStateWithLifecycle()
     val comments by viewModel.comments.collectAsStateWithLifecycle()
     val isCommentsLoading by viewModel.isCommentsLoading.collectAsStateWithLifecycle()
+    val isCommentsLoadingMore by viewModel.isCommentsLoadingMore.collectAsStateWithLifecycle()
+    val commentsHasMore by viewModel.commentsHasMore.collectAsStateWithLifecycle()
+    val commentsError by viewModel.commentsError.collectAsStateWithLifecycle()
     val localBook by viewModel.book.collectAsStateWithLifecycle()
     val chapters by viewModel.chapters.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -441,7 +444,7 @@ fun SfBookDetailScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        "读者书评" + if (comments.isNotEmpty()) " (${comments.size})" else "",
+                                        "读者书评" + if (comments.isNotEmpty()) " (${comments.size}${if (commentsHasMore) "+" else ""})" else "",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -450,7 +453,7 @@ fun SfBookDetailScreen(
                                     }
                                 }
                                 if (comments.isNotEmpty()) {
-                                    comments.take(10).forEach { c ->
+                                    comments.forEach { c ->
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -477,10 +480,80 @@ fun SfBookDetailScreen(
                                                 Text(c.createTime, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                             }
                                             Text(c.content, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                                            if (c.favCount > 0 || c.replyNum > 0 || c.isStick) {
+                                                Row(
+                                                    Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                ) {
+                                                    if (c.isStick) Text(
+                                                        "置顶",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    if (c.favCount > 0) Text(
+                                                        "有用 ${c.favCount}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    if (c.replyNum > 0) Text(
+                                                        "回复 ${c.replyNum}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
+                                    if (commentsError != null) {
+                                        Column(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                commentsError.orEmpty(),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                            TextButton(onClick = { viewModel.loadMoreComments() }) {
+                                                Text("重试加载更多")
+                                            }
+                                        }
+                                    } else if (commentsHasMore) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.loadMoreComments() },
+                                            enabled = !isCommentsLoadingMore,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            if (isCommentsLoadingMore) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(16.dp),
+                                                    strokeWidth = 2.dp
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                            }
+                                            Text(if (isCommentsLoadingMore) "正在加载历史书评…" else "加载更多历史书评")
+                                        }
+                                    } else {
+                                        Text(
+                                            "已显示全部可读取书评",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                                        )
+                                    }
                                 } else if (!isCommentsLoading) {
+                                    if (commentsError != null) {
+                                        Text(
+                                            commentsError.orEmpty(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                        TextButton(onClick = { viewModel.loadComments(bookId) }) {
+                                            Text("重试")
+                                        }
+                                    } else {
                                     Text("暂无书评内容", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                    }
                                 }
                             }
                         }
