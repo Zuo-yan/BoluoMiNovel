@@ -270,7 +270,7 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        SectionCard(title = "关于", footer = "AI 智阅小说 v${com.novelai.assistant.BuildConfig.VERSION_NAME} · 本地阅读 + AI 伴读续写 · 隐私数据仅存本机") {
+        SectionCard(title = "关于", footer = "菠萝蜜小说 v${com.novelai.assistant.BuildConfig.VERSION_NAME} · 菠萝包阅读 + AI 伴读续写 · 隐私数据仅存本机") {
             SettingRow(
                 title = "手势提示",
                 subtitle = "阅读页点按中间唤出菜单；长按段落「划线即问」",

@@ -1150,14 +1150,36 @@ private fun ParagraphCommentsSheet(
                         }
                     }
                 }
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf("hot" to "最热", "new" to "最新").forEachIndexed { index, (value, label) ->
-                        SegmentedButton(
-                            selected = sort == value,
-                            onClick = { if (sort != value) onSort(value) },
-                            shape = SegmentedButtonDefaults.itemShape(index, 2),
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        ) { Text(label) }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
+                    ) {
+                        Row(Modifier.padding(3.dp)) {
+                            listOf("hot" to "最热", "new" to "最新").forEach { (value, label) ->
+                                val selected = sort == value
+                                Surface(
+                                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                                    else Color.Transparent,
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                                    modifier = Modifier.clickable {
+                                        if (!selected) onSort(value)
+                                    }
+                                ) {
+                                    Text(
+                                        label,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

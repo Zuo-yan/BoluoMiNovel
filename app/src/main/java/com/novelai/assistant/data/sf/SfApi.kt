@@ -288,6 +288,7 @@ object SfProtocol {
                     .ifBlank { obj.text("displayName") }
                     .ifBlank { "菠萝包读者" },
                 avatar = user?.text("avatar").orEmpty()
+                    .ifBlank { user?.obj("expand")?.text("avatar").orEmpty() }
                     .ifBlank { obj.text("avatar") }
                     .takeIf { it.isNotBlank() },
                 content = content,

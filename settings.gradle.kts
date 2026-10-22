@@ -29,5 +29,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NovelAIAssistant"
+rootProject.name = "BoluoMiNovel"
 include(":app")

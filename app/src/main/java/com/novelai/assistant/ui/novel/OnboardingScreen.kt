@@ -54,9 +54,9 @@ fun OnboardingScreen(
         listOf(
             OnboardingPage(
                 icon = Icons.Rounded.AutoAwesome,
-                title = "AI 智阅小说",
+                title = "菠萝蜜小说",
                 body = listOf(
-                    "现代电子书阅读器 × 深度 AI 伴读 × 沉浸式续写与平行分支",
+                    "菠萝包轻小说阅读器 × 深度 AI 伴读 × 沉浸式续写与平行分支",
                     "BYOK 模式：接入你自己的模型密钥，所有数据只留在你的设备上"
                 )
             ),

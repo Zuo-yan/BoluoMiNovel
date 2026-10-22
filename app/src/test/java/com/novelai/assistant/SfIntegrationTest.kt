@@ -429,7 +429,7 @@ class SfIntegrationTest {
                   {"tsukkomiId":35702792,"row":0,"favNum":27,"replyNum":10,
                    "content":"看到后面有些失望[em:sfgirl:007]",
                    "postDate":"2025-04-08T13:58:07",
-                   "postUser":{"accountId":10596429,"nickName":"hyxv5"},
+                   "postUser":{"accountId":10596429,"nickName":"hyxv5","expand":{"avatar":"https://example.com/main.jpg"}},
                    "roleName":"火种"}
                 ]"""
             )
@@ -439,7 +439,7 @@ class SfIntegrationTest {
         assertEquals("35702792", comment.id)
         assertEquals(0, comment.row)
         assertEquals("hyxv5", comment.displayName)
-        assertNull(comment.avatar)
+        assertEquals("https://example.com/main.jpg", comment.avatar)
         assertEquals("看到后面有些失望[表情]", comment.content)
         assertEquals("2025-04-08 13:58:07", comment.createTime)
         assertEquals(27, comment.favCount)
