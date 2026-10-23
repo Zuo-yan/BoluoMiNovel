@@ -35,6 +35,21 @@ class MainActivity : ComponentActivity() {
                 AppThemeMode.LIGHT -> false
                 AppThemeMode.FOLLOW_SYSTEM -> isSystemInDarkTheme()
             }
+            androidx.compose.runtime.DisposableEffect(darkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (darkTheme) {
+                        androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    },
+                    navigationBarStyle = if (darkTheme) {
+                        androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    }
+                )
+                onDispose {}
+            }
             NovelAITheme(darkTheme = darkTheme) {
                 NovelApp(listeningNavBus = listeningNavBus)
             }

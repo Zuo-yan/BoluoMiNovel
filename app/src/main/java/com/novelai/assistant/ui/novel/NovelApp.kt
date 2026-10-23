@@ -170,7 +170,11 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
         currentRoute != Routes.LISTENING &&
         currentRoute != Routes.ONBOARDING
 
-    Box(Modifier.fillMaxSize()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         AmbientBackdrop()
 
         Scaffold(
