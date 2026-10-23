@@ -82,7 +82,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.tts.TtsTimerMode
 import com.novelai.assistant.data.tts.TtsVoiceOption
 import com.novelai.assistant.ui.bookshelf.BookCover
-import com.novelai.assistant.ui.components.glassEffect
+import com.novelai.assistant.ui.components.AmbientBackdrop
+import com.novelai.assistant.ui.components.liquidGlass
 import com.novelai.assistant.ui.components.rememberGlassState
 import java.util.Locale
 

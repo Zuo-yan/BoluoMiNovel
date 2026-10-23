@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Content-菠萝包轻小说-pink.svg?style=flat-square" alt="菠萝包轻小说" />
   <img src="https://img.shields.io/badge/AI-BYOK-purple.svg?style=flat-square" alt="BYOK AI" />
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-blue.svg?style=flat-square" alt="Jetpack Compose" />
-  <img src="https://img.shields.io/badge/Latest-v0.32.0-success.svg?style=flat-square" alt="v0.32.0" />
+  <img src="https://img.shields.io/badge/Latest-v0.32.1-success.svg?style=flat-square" alt="v0.32.1" />
 </p>
 
 菠萝蜜小说是一款围绕 **菠萝包轻小说** 设计的 Android 阅读器，将账号书架、作品发现、原生阅读、漫画、读者书评与间贴整合到一个应用里，并提供基于用户自有模型 API Key 的 AI 伴读、续写和平行剧情分支。TXT、Markdown、EPUB 等本地书籍可作为补充阅读来源。

@@ -139,6 +139,7 @@ fun Modifier.liquidGlass(
     tint: Color? = null,
     shape: Shape = RoundedCornerShape(26.dp),
     blurRadius: Dp = 28.dp,
+    enableFlowSheen: Boolean = false,
     borderWidth: Dp = 1.dp
 ): Modifier {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f

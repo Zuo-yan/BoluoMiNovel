@@ -52,6 +52,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import com.novelai.assistant.ui.components.glassSource
+import com.novelai.assistant.ui.components.liquidGlass
+import com.novelai.assistant.ui.components.rememberGlassState
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -295,13 +303,20 @@ fun ReaderScreen(
 
     val statusBarPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val readerHazeState = rememberGlassState()
+    val accent = if (isDarkReader) Color(0xFF9A97FF) else MaterialTheme.colorScheme.primary
 
     Box(
         Modifier
             .fillMaxSize()
             .background(bgColor)
     ) {
-        // ---------- 内容 ----------
+        // ---------- 内容（标记为 Haze 实时背景采样源） ----------
+        Box(
+            Modifier
+                .fillMaxSize()
+                .glassSource(readerHazeState)
+        ) {
         currentChapter?.takeIf { it.content.isNotBlank() }?.let { chapter ->
             val paragraphs = remember(chapter.id, chapter.content) { Paginator.splitParagraphs(chapter.content) }
             val contentModifier: Modifier = Modifier
@@ -388,27 +403,48 @@ fun ReaderScreen(
                 }
             }
         }
+        }
 
-        // ---------- 顶栏 ----------
+        // ---------- 顶栏（浮动液态玻璃岛） ----------
         AnimatedVisibility(
             visible = chromeVisible && !tocOpen,
             enter = slideInVertically(spring(stiffness = 400f)) { -it } + fadeIn(),
             exit = slideOutVertically(spring(stiffness = 400f)) { -it } + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(top = statusBarPad + 8.dp)
+                .padding(horizontal = 14.dp)
         ) {
-            Surface(
-                color = Color(palette.chrome).copy(alpha = 0.96f),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 12.dp,
+                        shape = RoundedCornerShape(26.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.16f),
+                        spotColor = Color.Black.copy(alpha = 0.24f)
+                    )
+                    .liquidGlass(
+                        state = readerHazeState,
+                        tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.86f),
+                        shape = RoundedCornerShape(26.dp),
+                        blurRadius = 28.dp,
+                        enableFlowSheen = false
+                    )
             ) {
-                Column(Modifier.padding(top = statusBarPad)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    ) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = onChromeColor)
                         }
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
                             Text(
                                 book?.title ?: "",
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = secondaryColor,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -416,6 +452,7 @@ fun ReaderScreen(
                             Text(
                                 currentChapter?.title ?: "",
                                 style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = onChromeColor,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -472,195 +509,222 @@ fun ReaderScreen(
                             }
                         }
                     }
-                    // 进度条
+                    // 嵌入式晶体微光进度条
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .height(2.dp)
-                            .background(secondaryColor.copy(alpha = 0.25f), CircleShape)
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .height(2.5.dp)
+                            .clip(RoundedCornerShape(1.25.dp))
+                            .background(secondaryColor.copy(alpha = 0.20f))
                     ) {
                         Box(
                             Modifier
                                 .fillMaxWidth((chapters.size.coerceAtLeast(1)).let { total ->
                                     ((chapterIndex + 1).coerceIn(1, total)).toFloat() / total
                                 })
-                                .height(2.dp)
-                                .background(Color(palette.text).copy(alpha = 0.5f), CircleShape)
+                                .fillMaxHeight()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(accent.copy(alpha = 0.7f), accent)
+                                    )
+                                )
                         )
                     }
                 }
             }
         }
 
-        // ---------- 底栏 ----------
-        val accent = if (isDarkReader) Color(0xFF9A97FF) else MaterialTheme.colorScheme.primary
+        // ---------- 底栏（浮动液态玻璃控制岛） ----------
         AnimatedVisibility(
             visible = chromeVisible && !tocOpen,
             enter = slideInVertically(spring(stiffness = 400f)) { it } + fadeIn(),
             exit = slideOutVertically(spring(stiffness = 400f)) { it } + fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(bottom = (navBarPad + 12.dp).coerceAtLeast(16.dp))
+                .padding(horizontal = 14.dp)
         ) {
-            Surface(color = Color(palette.chrome).copy(alpha = 0.96f), modifier = Modifier.fillMaxWidth()) {
-                Column {
-                // 听书控制胶囊（仅属于当前正在朗读的书籍）
-                androidx.compose.animation.AnimatedVisibility(visible = activeSpeaking || activePaused) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .background(Color(palette.text).copy(alpha = 0.08f), MaterialTheme.shapes.large),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            if (ttsPaused) "已暂停 · 第 ${ttsPosition + 1} 段" else "朗读中 · 第 ${ttsPosition + 1} 段",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = onChromeColor,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        // 定时状态与设置按钮
-                        val timerActive = ttsTimerMode != com.novelai.assistant.ui.reader.TtsTimerMode.OFF
-                        Surface(
-                            shape = CircleShape,
-                            color = if (timerActive) accent.copy(alpha = 0.22f) else onChromeColor.copy(alpha = 0.08f),
-                            border = if (timerActive) androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.6f)) else null,
-                            modifier = Modifier.clickable { timerSheetOpen = true }
-                        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 14.dp,
+                        shape = RoundedCornerShape(26.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.16f),
+                        spotColor = Color.Black.copy(alpha = 0.25f)
+                    )
+                    .liquidGlass(
+                        state = readerHazeState,
+                        tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
+                        shape = RoundedCornerShape(26.dp),
+                        blurRadius = 28.dp,
+                        enableFlowSheen = isCurrentBookSpeaking
+                    )
+            ) {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    // 听书控制胶囊（仅属于当前正在朗读的书籍）
+                    androidx.compose.animation.AnimatedVisibility(visible = activeSpeaking || activePaused) {
+                        Column {
                             Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                    .background(Color(palette.text).copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(
-                                    Icons.Rounded.Timer,
-                                    contentDescription = "定时",
-                                    tint = if (timerActive) accent else onChromeColor,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                val timerLabel = when {
-                                    ttsTimerRemainingSeconds != null -> formatRemaining(ttsTimerRemainingSeconds)
-                                    ttsTimerMode == com.novelai.assistant.ui.reader.TtsTimerMode.END_OF_CHAPTER -> "本章停"
-                                    else -> "定时"
-                                }
                                 Text(
-                                    timerLabel,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (timerActive) accent else onChromeColor
+                                    if (ttsPaused) "已暂停 · 第 ${ttsPosition + 1} 段" else "朗读中 · 第 ${ttsPosition + 1} 段",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = onChromeColor,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                // 定时状态与设置按钮
+                                val timerActive = ttsTimerMode != com.novelai.assistant.ui.reader.TtsTimerMode.OFF
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (timerActive) accent.copy(alpha = 0.22f) else onChromeColor.copy(alpha = 0.08f),
+                                    border = if (timerActive) androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.6f)) else null,
+                                    modifier = Modifier.clickable { timerSheetOpen = true }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Timer,
+                                            contentDescription = "定时",
+                                            tint = if (timerActive) accent else onChromeColor,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        val timerLabel = when {
+                                            ttsTimerRemainingSeconds != null -> formatRemaining(ttsTimerRemainingSeconds)
+                                            ttsTimerMode == com.novelai.assistant.ui.reader.TtsTimerMode.END_OF_CHAPTER -> "本章停"
+                                            else -> "定时"
+                                        }
+                                        Text(
+                                            timerLabel,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (timerActive) accent else onChromeColor
+                                        )
+                                    }
+                                }
+                                IconButton(onClick = {
+                                    if (ttsPaused) viewModel.resumeTts() else viewModel.pauseTts()
+                                }) {
+                                    Icon(
+                                        if (ttsPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                                        contentDescription = if (ttsPaused) "继续" else "暂停",
+                                        tint = onChromeColor,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                IconButton(onClick = { viewModel.toggleTts() }) {
+                                    Icon(
+                                        Icons.Rounded.Stop,
+                                        contentDescription = "停止朗读",
+                                        tint = onChromeColor,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            // 语速调节
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    "语速",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = secondaryColor
+                                )
+                                listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { r ->
+                                    val selected = kotlin.math.abs(ttsSpeed - r) < 0.01f
+                                    Text(
+                                        if (r == 1.0f) "1x" else "${r}x",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (selected) accent else onChromeColor.copy(alpha = 0.75f),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                if (selected) accent.copy(alpha = 0.18f) else Color.Transparent
+                                            )
+                                            .clickable { viewModel.setTtsSpeed(r) }
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
                             }
                         }
-                        IconButton(onClick = {
-                            if (ttsPaused) viewModel.resumeTts() else viewModel.pauseTts()
-                        }) {
-                            Icon(
-                                if (ttsPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                                contentDescription = if (ttsPaused) "继续" else "暂停",
-                                tint = onChromeColor,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        IconButton(onClick = { viewModel.toggleTts() }) {
-                            Icon(
-                                Icons.Rounded.Stop,
-                                contentDescription = "停止朗读",
-                                tint = onChromeColor,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
                     }
-                }
-                // 语速调节
-                androidx.compose.animation.AnimatedVisibility(visible = activeSpeaking || activePaused) {
+
+                    // 核心按钮栏
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "语速",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = secondaryColor
-                        )
-                        listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { r ->
-                            val selected = kotlin.math.abs(ttsSpeed - r) < 0.01f
+                        ReaderBarAction(Icons.Rounded.Menu, "目录", onChromeColor) { viewModel.openToc() }
+                        ReaderBarAction(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "上一章", onChromeColor) {
+                            if (chapterIndex > 0) viewModel.setChapterIndex(chapterIndex - 1)
+                        }
+                        ReaderBarAction(
+                            if (isCurrentBookSpeaking) Icons.Rounded.Stop else Icons.Rounded.Headphones,
+                            "听书", if (isCurrentBookSpeaking) accent else onChromeColor
+                        ) {
+                            if (ttsReady) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                checkNotificationPermission()
+                                viewModel.toggleTts(currentVisibleParaIndex)
+                            }
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    currentChapter?.let { ch ->
+                                        onGenerate(viewModel.bookId, ch.id, "CONTINUATION")
+                                    }
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.AutoAwesome,
+                                contentDescription = "AI 续写",
+                                tint = accent,
+                                modifier = Modifier.size(22.dp)
+                            )
                             Text(
-                                if (r == 1.0f) "1x" else "${r}x",
+                                "AI 续写",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) accent else onChromeColor.copy(alpha = 0.75f),
-                                modifier = Modifier
-                                    .clip(MaterialTheme.shapes.small)
-                                    .background(
-                                        if (selected) accent.copy(alpha = 0.18f) else Color.Transparent
-                                    )
-                                    .clickable { viewModel.setTtsSpeed(r) }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                fontWeight = FontWeight.SemiBold,
+                                color = accent
                             )
                         }
-                    }
-                }
-                Row(
-                    Modifier
-                        .padding(bottom = navBarPad, top = 6.dp)
-                        .padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ReaderBarAction(Icons.Rounded.Menu, "目录", onChromeColor) { viewModel.openToc() }
-                    ReaderBarAction(Icons.Rounded.KeyboardArrowLeft, "上一章", onChromeColor) {
-                        if (chapterIndex > 0) viewModel.setChapterIndex(chapterIndex - 1)
-                    }
-                    ReaderBarAction(
-                        if (isCurrentBookSpeaking) Icons.Rounded.Stop else Icons.Rounded.Headphones,
-                        "听书", if (isCurrentBookSpeaking) accent else onChromeColor
-                    ) {
-                        if (ttsReady) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            checkNotificationPermission()
-                            viewModel.toggleTts(currentVisibleParaIndex)
+                        ReaderBarAction(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "下一章", onChromeColor) {
+                            if (chapterIndex < chapters.lastIndex) viewModel.setChapterIndex(chapterIndex + 1)
                         }
+                        ReaderBarAction(Icons.Rounded.Tune, "设置", onChromeColor) { viewModel.openSettings() }
                     }
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable {
-                                currentChapter?.let { ch ->
-                                    onGenerate(viewModel.bookId, ch.id, "CONTINUATION")
-                                }
-                            }
-                            .padding(vertical = 6.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.AutoAwesome,
-                            contentDescription = "AI 续写",
-                            tint = accent,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            "AI 续写",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = accent
-                        )
-                    }
-                    ReaderBarAction(Icons.Rounded.KeyboardArrowRight, "下一章", onChromeColor) {
-                        if (chapterIndex < chapters.lastIndex) viewModel.setChapterIndex(chapterIndex + 1)
-                    }
-                    ReaderBarAction(Icons.Rounded.Tune, "设置", onChromeColor) { viewModel.openSettings() }
-                }
                 }
             }
         }
 
-        // ---------- 划线即问 ----------
+        // ---------- 划线即问（浮动液态玻璃胶囊） ----------
         val quoteBottomPadding = when {
-            chromeVisible && (ttsSpeaking || ttsPaused) -> navBarPad + 168.dp
-            chromeVisible -> navBarPad + 84.dp
-            ttsSpeaking || ttsPaused -> navBarPad + 84.dp
+            chromeVisible && (ttsSpeaking || ttsPaused) -> navBarPad + 180.dp
+            chromeVisible -> navBarPad + 104.dp
+            ttsSpeaking || ttsPaused -> navBarPad + 104.dp
             else -> navBarPad + 28.dp
         }
         AnimatedVisibility(
@@ -671,25 +735,31 @@ fun ReaderScreen(
                 .align(Alignment.BottomCenter)
                 .padding(
                     bottom = quoteBottomPadding,
-                    start = 16.dp,
-                    end = 16.dp
+                    start = 14.dp,
+                    end = 14.dp
                 )
         ) {
-            Surface(
-                shape = CircleShape,
-                color = if (isEffectiveDark) Color(0xFF22222E) else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.98f),
-                shadowElevation = 10.dp,
-                border = androidx.compose.foundation.BorderStroke(
-                    0.5.dp,
-                    if (isEffectiveDark) Color(0xFF404050) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                )
+            Box(
+                modifier = Modifier
+                    .shadow(
+                        elevation = 12.dp,
+                        shape = RoundedCornerShape(24.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.16f),
+                        spotColor = Color.Black.copy(alpha = 0.25f)
+                    )
+                    .liquidGlass(
+                        state = readerHazeState,
+                        tint = if (isDarkReader) Color(0xFF161622).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
+                        shape = RoundedCornerShape(24.dp),
+                        blurRadius = 24.dp,
+                        enableFlowSheen = false
+                    )
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 // 用 FlowRow + 定宽上限：横向滚动会让 Row 按不限宽测量，
                 // 外层 Surface 随之撑出屏幕，末尾的“本章间贴”被推到不可点区域。
                 FlowRow(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth(),
                     maxItemsInEachRow = 3,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
