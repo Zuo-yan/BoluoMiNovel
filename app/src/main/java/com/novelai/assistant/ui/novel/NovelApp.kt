@@ -435,7 +435,7 @@ private fun GlassBottomBar(
                 state = hazeState,
                 shape = RoundedCornerShape(26.dp),
                 blurRadius = 28.dp,
-                enableFlowSheen = true
+                
             )
             .padding(bottom = navBarPadding.calculateBottomPadding() * 0.5f),
         verticalAlignment = Alignment.CenterVertically

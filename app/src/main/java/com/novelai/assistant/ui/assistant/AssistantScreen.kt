@@ -323,7 +323,7 @@ fun AssistantScreen(
                     state = hazeState,
                     shape = RoundedCornerShape(26.dp),
                     blurRadius = 26.dp,
-                    enableFlowSheen = generating
+                    
                 )
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {

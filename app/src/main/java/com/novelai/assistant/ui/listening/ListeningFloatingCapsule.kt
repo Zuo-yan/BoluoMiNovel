@@ -143,7 +143,7 @@ fun ListeningFloatingCapsule(
                         state = hazeState,
                         shape = RoundedCornerShape(25.dp),
                         blurRadius = 28.dp,
-                        enableFlowSheen = speaking && !paused
+                        
                     )
                     .pointerInput(screenWidthPx, screenHeightPx) {
                         detectDragGestures(
