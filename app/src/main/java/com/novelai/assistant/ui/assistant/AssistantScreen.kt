@@ -2,6 +2,16 @@ package com.novelai.assistant.ui.assistant
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import com.novelai.assistant.ui.components.liquidGlass
+import dev.chrisbanes.haze.HazeState
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -64,7 +74,8 @@ import com.novelai.assistant.ui.components.LargeTitleHeader
 fun AssistantScreen(
     bookIdArg: String = "",
     quoteArg: String = "",
-    viewModel: AssistantViewModel = hiltViewModel()
+    viewModel: AssistantViewModel = hiltViewModel(),
+    hazeState: HazeState? = null
 ) {
     val books by viewModel.books.collectAsStateWithLifecycle()
     val currentBookId by viewModel.currentBookId.collectAsStateWithLifecycle()
@@ -291,66 +302,109 @@ fun AssistantScreen(
             )
         }
 
-        // 输入栏
-        Surface(tonalElevation = 2.dp) {
+        val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+        val isImeVisible = imeBottom > 0.dp
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val inputBottomPadding = if (isImeVisible) 8.dp else (68.dp + navBarBottom * 0.5f)
+
+        // 浮动液态玻璃输入岛：与底部胶囊导航栏保持 14dp 边距和圆角曲率完全同构统一
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp)
+                .padding(bottom = inputBottomPadding + 4.dp)
+                .shadow(
+                    elevation = 10.dp,
+                    shape = RoundedCornerShape(26.dp),
+                    ambientColor = Color.Black.copy(alpha = 0.12f),
+                    spotColor = Color.Black.copy(alpha = 0.20f)
+                )
+                .liquidGlass(
+                    state = hazeState,
+                    shape = RoundedCornerShape(26.dp),
+                    blurRadius = 26.dp,
+                    enableFlowSheen = generating
+                )
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
             Column {
                 if (generating) {
                     LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(2.dp),
+                            .padding(horizontal = 10.dp, vertical = 2.dp)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp)),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                     )
                 }
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.Bottom,
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedTextField(
+                    BasicTextField(
                         value = input,
                         onValueChange = { input = it },
-                        placeholder = {
-                            Text(
-                                if (generating) "AI 正在思考与回答中…" else "问问这本书…"
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         maxLines = 4,
-                        shape = RoundedCornerShape(20.dp)
+                        decorationBox = { innerTextField ->
+                            if (input.isEmpty()) {
+                                Text(
+                                    text = if (generating) "AI 正在思考与回答中…" else "问问这本书…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.60f)
+                                )
+                            }
+                            innerTextField()
+                        }
                     )
+
                     if (generating) {
                         IconButton(
                             onClick = { viewModel.stopGenerating() },
                             modifier = Modifier
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.errorContainer)
                         ) {
-                            Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = MaterialTheme.colorScheme.error)
+                            Icon(
+                                Icons.Rounded.Stop,
+                                contentDescription = "停止",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     } else {
+                        val canSend = input.isNotBlank() || pendingQuote != null
                         IconButton(
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 viewModel.send(input)
                                 input = ""
                             },
-                            enabled = input.isNotBlank() || pendingQuote != null,
+                            enabled = canSend,
                             modifier = Modifier
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (input.isNotBlank() || pendingQuote != null)
-                                        MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                                    if (canSend) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                                 )
                         ) {
                             Icon(
                                 Icons.Rounded.Send,
                                 contentDescription = "发送",
-                                tint = if (input.isNotBlank() || pendingQuote != null)
-                                    MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }

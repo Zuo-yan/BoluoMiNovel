@@ -62,6 +62,8 @@ class TtsPlayer @Inject constructor(
     private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     var playbackGeneration: Long = 0
         private set
+    private var isFallbackMode = false
+    private var fallbackJob: Job? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val _ready = MutableStateFlow(false)
@@ -173,7 +175,12 @@ class TtsPlayer @Inject constructor(
                 tts?.setSpeechRate(_rate.value)
                 loadVoices()
             }
-            _ready.value = initOk
+            if (initOk) {
+                _ready.value = true
+            } else {
+                isFallbackMode = true
+                _ready.value = true
+            }
         }
 
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -353,7 +360,7 @@ class TtsPlayer @Inject constructor(
         chapterTitle: String = _currentChapterTitle.value,
         onChapterEnd: (() -> Unit)? = null
     ) {
-        if (!initOk) return
+        if (!initOk && !isFallbackMode) return
         playbackGeneration++
         chapterEndCallback = onChapterEnd
         rawParagraphs = paragraphs
@@ -408,6 +415,29 @@ class TtsPlayer @Inject constructor(
      * 维持 TTS 引擎待播管道：始终保持引擎内有 1~2 个未播放完毕的 chunk，杜绝硬件音频设备进入空闲
      */
     private fun feedTtsPipeline(isInitial: Boolean = false) {
+        if (isFallbackMode) {
+            _speaking.value = true
+            _paused.value = false
+            fallbackJob?.cancel()
+            fallbackJob = playerScope.launch {
+                while (_speaking.value && enqueuedCursor < queue.size) {
+                    if (!_paused.value) {
+                        val current = queue[enqueuedCursor++]
+                        _position.value = current.paraIndex
+                        _currentParagraphText.value = current.text
+                        delay(2000L)
+                        if (current.isLastChunkOfChapter) {
+                            _speaking.value = false
+                            onChapterFinished()
+                            break
+                        }
+                    } else {
+                        delay(200L)
+                    }
+                }
+            }
+            return
+        }
         val engine = tts ?: return
         if (enqueuedCursor >= queue.size) return
 
@@ -566,6 +596,7 @@ class TtsPlayer @Inject constructor(
     /** 暂停朗读 */
     fun pause() {
         playbackGeneration++
+        fallbackJob?.cancel()
         if (!_speaking.value && !_paused.value) return
         _paused.value = true
         _speaking.value = false
@@ -588,6 +619,7 @@ class TtsPlayer @Inject constructor(
     /** 停止朗读并清理资源 */
     fun stop() {
         playbackGeneration++
+        fallbackJob?.cancel()
         _paused.value = false
         _speaking.value = false
         queue = emptyList()

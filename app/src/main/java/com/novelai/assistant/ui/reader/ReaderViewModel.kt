@@ -355,7 +355,8 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun startTtsForChapter(chapter: ChapterEntity, startIndex: Int = 0) {
-        ttsPlayer.bindBookContext(bookId, book.value?.title ?: "", chapters.value)
+        val bTitle = book.value?.title?.ifBlank { null } ?: chapter.title
+        ttsPlayer.bindBookContext(bookId, bTitle, chapters.value)
         if (chapter.content.isBlank()) {
             val requestGeneration = ttsPlayer.playbackGeneration
             viewModelScope.launch {

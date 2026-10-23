@@ -56,6 +56,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
 import com.novelai.assistant.data.tts.TtsPlayer
+import androidx.compose.ui.graphics.Color
+import com.novelai.assistant.ui.components.liquidGlass
+import dev.chrisbanes.haze.HazeState
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -71,7 +74,8 @@ fun ListeningFloatingCapsule(
     ttsPlayer: TtsPlayer,
     prefs: ReadingPreferencesRepository,
     onOpenListening: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hazeState: HazeState? = null
 ) {
     val speaking by ttsPlayer.speaking.collectAsStateWithLifecycle()
     val paused by ttsPlayer.paused.collectAsStateWithLifecycle()
@@ -79,7 +83,7 @@ fun ListeningFloatingCapsule(
     val chapterTitle by ttsPlayer.currentChapterTitle.collectAsStateWithLifecycle()
     val positionFrac by prefs.listenPillPosition.collectAsStateWithLifecycle(initialValue = 0.90f to 0.65f)
 
-    val isVisible = (speaking || paused) && bookTitle.isNotBlank()
+    val isVisible = speaking || paused
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -124,20 +128,23 @@ fun ListeningFloatingCapsule(
                 label = "capsuleY"
             )
 
-            Surface(
-                shape = RoundedCornerShape(25.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                tonalElevation = 6.dp,
-                shadowElevation = 8.dp,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                ),
+            Box(
                 modifier = Modifier
                     .offset { IntOffset(animatedX.roundToInt(), animatedY.roundToInt()) }
                     .width(capsuleWidthDp)
                     .height(capsuleHeightDp)
-                    .clip(RoundedCornerShape(25.dp))
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = RoundedCornerShape(25.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.18f),
+                        spotColor = Color.Black.copy(alpha = 0.28f)
+                    )
+                    .liquidGlass(
+                        state = hazeState,
+                        shape = RoundedCornerShape(25.dp),
+                        blurRadius = 28.dp,
+                        enableFlowSheen = speaking && !paused
+                    )
                     .pointerInput(screenWidthPx, screenHeightPx) {
                         detectDragGestures(
                             onDrag = { change, dragAmount ->
@@ -194,9 +201,10 @@ fun ListeningFloatingCapsule(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = bookTitle,
+                            text = bookTitle.ifBlank { "正在听书" },
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )

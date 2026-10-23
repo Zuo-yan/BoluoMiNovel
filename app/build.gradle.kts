@@ -15,8 +15,8 @@ android {
         applicationId = "com.novelai.assistant"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.31.0"
+        versionCode = 36
+        versionName = "0.32.0"
     }
 
     buildTypes {

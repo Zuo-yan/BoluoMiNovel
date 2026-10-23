@@ -71,7 +71,7 @@ fun SfScreen(
     }
     val progress = remember(locals) { locals.associateBy { it.id } }
     val recent = remember(locals) { locals.firstOrNull { it.lastReadAt > 0 } }
-    LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 28.dp)) {
+    LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 84.dp)) {
         item {
             LargeTitleHeader("菠萝包", subtitle = "好故事，接着读") {
                 IconButton(onOpenNovelBrowse) { Icon(Icons.Rounded.Search, "搜索和分类找小说") }

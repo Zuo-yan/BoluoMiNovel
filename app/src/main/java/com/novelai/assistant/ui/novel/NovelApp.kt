@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
@@ -51,7 +53,11 @@ import com.novelai.assistant.data.tts.ListeningNavBus
 import com.novelai.assistant.ui.assistant.AssistantScreen
 import com.novelai.assistant.ui.assistant.ReaderCompanionScreen
 import com.novelai.assistant.ui.bookshelf.BookshelfScreen
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import com.novelai.assistant.ui.components.glassEffect
+import com.novelai.assistant.ui.components.AmbientBackdrop
+import com.novelai.assistant.ui.components.liquidGlass
 import com.novelai.assistant.ui.components.glassSource
 import com.novelai.assistant.ui.components.rememberGlassState
 import com.novelai.assistant.ui.continuation.ContinuationScreen
@@ -141,7 +147,8 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
     val hazeState = rememberGlassState()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = isTopLevelRoute(currentRoute)
+    val isImeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+    val showBottomBar = isTopLevelRoute(currentRoute) && !isImeVisible
 
     // 监听通知栏卡片点击事件：跳转到专门听书模块
     androidx.compose.runtime.LaunchedEffect(navBus) {
@@ -164,25 +171,17 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
         currentRoute != Routes.ONBOARDING
 
     Box(Modifier.fillMaxSize()) {
+        AmbientBackdrop()
+
         Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = {
-                if (showBottomBar) {
-                    GlassBottomBar(
-                        hazeState = hazeState,
-                        currentRoute = currentRoute,
-                        onSelect = { dest -> navigateTopLevel(navController, dest) }
-                    )
-                }
-            }
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
         ) { padding ->
             NavHost(
                 navController = navController,
                 startDestination = if (onboardingDone == true) Routes.BOOKSHELF else Routes.ONBOARDING,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 0.dp, bottom = padding.calculateBottomPadding())
                     .glassSource(hazeState),
                 enterTransition = {
                     if (targetState.destination.route in topLevelRoutes) fadeIn(tween(100))
@@ -281,7 +280,7 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                     com.novelai.assistant.ui.discover.SfCatalogScreen(id, { navController.popBackStack() }, { index -> navController.navigate(Routes.readerAt(id, index)) })
                 }
                 composable(Routes.ASSISTANT) {
-                    AssistantScreen()
+                    AssistantScreen(hazeState = hazeState)
                 }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
@@ -377,10 +376,25 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
         }
     }
 
+    if (showBottomBar) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+        ) {
+            GlassBottomBar(
+                hazeState = hazeState,
+                currentRoute = currentRoute,
+                onSelect = { dest -> navigateTopLevel(navController, dest) }
+            )
+        }
+    }
+
     if (showCapsule) {
         ListeningFloatingCapsule(
             ttsPlayer = appViewModel.ttsPlayer,
             prefs = appViewModel.readingPreferencesRepository,
+            hazeState = hazeState,
             onOpenListening = {
                 navController.navigate(Routes.LISTENING) {
                     launchSingleTop = true
@@ -411,10 +425,17 @@ private fun GlassBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 6.dp)
-            .glassEffect(
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(26.dp),
+                ambientColor = Color.Black.copy(alpha = 0.15f),
+                spotColor = Color.Black.copy(alpha = 0.25f)
+            )
+            .liquidGlass(
                 state = hazeState,
-                tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                shape = RoundedCornerShape(26.dp)
+                shape = RoundedCornerShape(26.dp),
+                blurRadius = 28.dp,
+                enableFlowSheen = true
             )
             .padding(bottom = navBarPadding.calculateBottomPadding() * 0.5f),
         verticalAlignment = Alignment.CenterVertically
