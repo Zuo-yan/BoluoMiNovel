@@ -33,7 +33,7 @@ fun FanqieScreen(onBack: () -> Unit, viewModel: DiscoverViewModel = hiltViewMode
     val limit by viewModel.maxChapters.collectAsStateWithLifecycle()
     val relay by viewModel.relay.collectAsStateWithLifecycle()
     var relayDraft by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = com.novelai.assistant.ui.components.bottomBarContentPadding()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onBack, modifier = Modifier.padding(horizontal = 8.dp)) { Text("‹ 返回菠萝包") }
         LargeTitleHeader("番茄小说", subtitle = "获取目录 · 下载到本地书架")
         SectionCard(title = "书源") {

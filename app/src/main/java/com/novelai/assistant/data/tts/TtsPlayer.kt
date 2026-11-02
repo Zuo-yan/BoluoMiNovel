@@ -9,6 +9,7 @@ import android.speech.tts.UtteranceProgressListener
 import com.novelai.assistant.data.db.ChapterEntity
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
 import com.novelai.assistant.data.repository.BookRepository
+import com.novelai.assistant.ui.reader.Paginator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -208,6 +209,10 @@ class TtsPlayer @Inject constructor(
                     handleUtteranceCompletion(utteranceId)
                 }
             }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                mainHandler.post { handleUtteranceCompletion(utteranceId) }
+            }
         })
 
         // 从偏好中恢复上次语速与音色（进程重启后依然生效）
@@ -372,27 +377,12 @@ class TtsPlayer @Inject constructor(
         acquireWakeLock()
 
         // 构建段落切块队列
-        val items = mutableListOf<TtsQueueItem>()
-        for (pIdx in startIndex until paragraphs.size) {
-            val chunks = splitLongParagraph(if (com.novelai.assistant.ui.reader.ReaderIllustration.parse(paragraphs[pIdx]) != null) "插图" else paragraphs[pIdx])
-            val isLastPara = (pIdx == paragraphs.lastIndex)
-            for (cIdx in chunks.indices) {
-                val isLastChunk = isLastPara && (cIdx == chunks.lastIndex)
-                utteranceCounter++
-                val uId = "utt_${pIdx}_${cIdx}_${utteranceCounter}"
-                val item = TtsQueueItem(
-                    paraIndex = pIdx,
-                    chunkIndex = cIdx,
-                    text = chunks[cIdx],
-                    isLastChunkOfChapter = isLastChunk,
-                    utteranceId = uId
-                )
-                items.add(item)
-                utteranceMap[uId] = item
-            }
+        tts?.stop()
+        utteranceMap.clear()
+        queue = buildQueue(paragraphs, startIndex) { pIdx, cIdx ->
+            "utt_${pIdx}_${cIdx}_${++utteranceCounter}"
         }
-
-        queue = items
+        queue.forEach { utteranceMap[it.utteranceId] = it }
         enqueuedCursor = 0
         _position.value = startIndex
         _currentParagraphText.value = paragraphs.getOrNull(startIndex).orEmpty()
@@ -403,9 +393,6 @@ class TtsPlayer @Inject constructor(
             onChapterFinished()
             return
         }
-
-        // 停止之前的 utterance 并清空 TTS 引擎
-        tts?.stop()
 
         // 核心双重缓冲机制：首段使用 QUEUE_FLUSH 启动，紧随其后的下一段使用 QUEUE_ADD 提前排队
         feedTtsPipeline(isInitial = true)
@@ -441,23 +428,16 @@ class TtsPlayer @Inject constructor(
         val engine = tts ?: return
         if (enqueuedCursor >= queue.size) return
 
-        if (isInitial) {
-            // 第一块：清空并立即发声
-            val first = queue[enqueuedCursor++]
-            engine.speak(first.text, TextToSpeech.QUEUE_FLUSH, null, first.utteranceId)
+        val count = if (isInitial) 2 else 1
+        repeat(count) { index ->
+            if (enqueuedCursor >= queue.size) return
+            val next = queue[enqueuedCursor++]
+            val mode = if (isInitial && index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            if (engine.speak(next.text, mode, null, next.utteranceId) != TextToSpeech.SUCCESS) {
+                stop()
+                return
+            }
             _speaking.value = true
-
-            // 第二块：如果存在，提前 QUEUE_ADD 放入待播队列，形成无缝衔接
-            if (enqueuedCursor < queue.size) {
-                val second = queue[enqueuedCursor++]
-                engine.speak(second.text, TextToSpeech.QUEUE_ADD, null, second.utteranceId)
-            }
-        } else {
-            // 每次播完一块，如果队列里还有未提交的块，立即追加一块进入引擎
-            if (enqueuedCursor < queue.size) {
-                val next = queue[enqueuedCursor++]
-                engine.speak(next.text, TextToSpeech.QUEUE_ADD, null, next.utteranceId)
-            }
         }
     }
 
@@ -466,6 +446,7 @@ class TtsPlayer @Inject constructor(
         if (_paused.value) return
         val item = utteranceId?.let { utteranceMap.remove(it) }
 
+        if (item == null && queue.isNotEmpty()) return
         if (item?.isLastChunkOfChapter == true) {
             // 整章读完
             _speaking.value = false
@@ -519,7 +500,7 @@ class TtsPlayer @Inject constructor(
                     catch (e: kotlinx.coroutines.CancellationException) { throw e }
                     catch (_: Exception) { if (playbackGeneration == requestGeneration) stop(); return@launch }
                 if (playbackGeneration != requestGeneration) return@launch
-                val paragraphs = splitParagraphs(loaded.content)
+                val paragraphs = Paginator.splitParagraphs(loaded.content)
                 play(
                     paragraphs = paragraphs,
                     startIndex = 0,
@@ -565,7 +546,7 @@ class TtsPlayer @Inject constructor(
                     catch (e: kotlinx.coroutines.CancellationException) { throw e }
                     catch (_: Exception) { if (playbackGeneration == requestGeneration) stop(); return@launch }
                 if (playbackGeneration != requestGeneration) return@launch
-                val paragraphs = splitParagraphs(loaded.content)
+                val paragraphs = Paginator.splitParagraphs(loaded.content)
                 play(
                     paragraphs = paragraphs,
                     startIndex = 0,
@@ -646,6 +627,20 @@ class TtsPlayer @Inject constructor(
     companion object {
         private const val MAX_CHUNK = 1500
         private const val AUDITION_TEXT = "你好，这是当前音色的试听效果"
+
+        internal fun buildQueue(paragraphs: List<String>, startIndex: Int, nextId: (Int, Int) -> String): List<TtsQueueItem> {
+            val items = mutableListOf<TtsQueueItem>()
+            for (pIdx in startIndex.coerceAtLeast(0) until paragraphs.size) {
+                val paragraph = paragraphs[pIdx]
+                if (paragraph.isBlank()) continue
+                val text = if (com.novelai.assistant.ui.reader.ReaderIllustration.parse(paragraph) != null) "插图" else paragraph
+                splitLongParagraph(text).forEachIndexed { cIdx, chunk ->
+                    if (chunk.isNotBlank()) items.add(TtsQueueItem(pIdx, cIdx, chunk, false, nextId(pIdx, cIdx)))
+                }
+            }
+            if (items.isNotEmpty()) items[items.lastIndex] = items.last().copy(isLastChunkOfChapter = true)
+            return items
+        }
 
         fun splitParagraphs(content: String): List<String> {
             return content.lines()

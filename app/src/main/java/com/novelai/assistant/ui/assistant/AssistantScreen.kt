@@ -305,7 +305,7 @@ fun AssistantScreen(
         val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
         val isImeVisible = imeBottom > 0.dp
         val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val inputBottomPadding = if (isImeVisible) 8.dp else (68.dp + navBarBottom * 0.5f)
+        val inputBottomPadding = if (isImeVisible) 8.dp else (70.dp + navBarBottom)
 
         // 浮动液态玻璃输入岛：与底部胶囊导航栏保持 14dp 边距和圆角曲率完全同构统一
         Box(

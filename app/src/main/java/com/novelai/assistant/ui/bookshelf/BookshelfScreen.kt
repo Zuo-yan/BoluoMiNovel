@@ -227,7 +227,7 @@ fun BookshelfScreen(
             } else if (viewMode == ShelfViewMode.GRID) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 84.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = com.novelai.assistant.ui.components.bottomBarContentPadding()),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                     modifier = Modifier.weight(1f)
@@ -245,7 +245,7 @@ fun BookshelfScreen(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 84.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = com.novelai.assistant.ui.components.bottomBarContentPadding()),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {

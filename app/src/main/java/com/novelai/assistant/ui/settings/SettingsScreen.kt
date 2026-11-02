@@ -79,7 +79,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(bottom = 32.dp)
+            .padding(bottom = com.novelai.assistant.ui.components.bottomBarContentPadding())
     ) {
         LargeTitleHeader(title = "设置", subtitle = "BYOK 模式 · 密钥仅存本地加密空间")
 

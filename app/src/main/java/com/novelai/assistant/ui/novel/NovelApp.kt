@@ -428,7 +428,13 @@ private fun GlassBottomBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            // 整体抬升到系统手势条之上，避免与系统小白条重叠、避免玻璃延伸进系统栏区域产生白块
+            .padding(
+                start = 14.dp,
+                end = 14.dp,
+                top = 6.dp,
+                bottom = navBarPadding.calculateBottomPadding() + 8.dp
+            )
             .shadow(
                 elevation = 12.dp,
                 shape = RoundedCornerShape(26.dp),
@@ -440,8 +446,7 @@ private fun GlassBottomBar(
                 shape = RoundedCornerShape(26.dp),
                 blurRadius = 28.dp,
                 
-            )
-            .padding(bottom = navBarPadding.calculateBottomPadding() * 0.5f),
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TopLevelDestination.entries.forEach { dest ->

@@ -48,6 +48,10 @@ class MainActivity : ComponentActivity() {
                         androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                     }
                 )
+                // 关闭系统导航栏对比度遮罩，避免底部出现半透明白块
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    window.isNavigationBarContrastEnforced = false
+                }
                 onDispose {}
             }
             NovelAITheme(darkTheme = darkTheme) {

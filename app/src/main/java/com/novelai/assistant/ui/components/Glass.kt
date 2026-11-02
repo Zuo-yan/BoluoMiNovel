@@ -74,12 +74,13 @@ private const val LIQUID_GLASS_AGSL = """
 
         // 纯净物理折射 UV 位移（向透镜厚度中心弯曲）
         float2 disp = -normal * edgeFactor * iRefraction;
-        half4 color = compositedImage.eval(fragCoord + disp);
+        float2 sampleXY = clamp(fragCoord + disp, float2(1.0), iResolution - float2(1.0));
+        half4 color = compositedImage.eval(sampleXY);
 
         // 菲涅尔切面高光（纯白主光源入射）
         float2 lightDir = normalize(float2(-0.4, -0.9));
-        float spec = pow(max(0.0, dot(normal, -lightDir)), 5.0) * edgeFactor * 0.45;
-        color.rgb += half3(spec);
+        float spec = pow(max(0.0, dot(normal, lightDir)), 5.0) * edgeFactor * 0.35;
+        color.rgb += half3(spec) * color.a;
 
         return color;
     }
@@ -144,35 +145,21 @@ fun Modifier.liquidGlass(
 ): Modifier {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
-    // 纯净中性玻璃底色（无任何彩色干涉：浅色下 36% 纯净水晶透光，深色下 50% 烟熏黑曜玻璃）
+    // 玻璃底色：已停用 Haze 实时模糊（其在屏幕底部会透出白色矩形伪影），
+    // 改为稳定的半透明磨砂底色，浅色 82% / 深色 85%，保证底层内容不会穿透干扰。
     val resolvedTint = tint ?: if (isDark) {
-        Color(0xFF16161E).copy(alpha = 0.50f)
+        Color(0xFF1C1C24).copy(alpha = 0.85f)
     } else {
-        Color(0xFFF7F8FC).copy(alpha = 0.36f)
+        Color(0xFFF7F8FC).copy(alpha = 0.82f)
     }
 
-    val hazeModifier = if (state != null) {
-        Modifier.hazeEffect(state = state) {
-            this.style = HazeStyle(
-                backgroundColor = Color.Transparent,
-                tints = listOf(HazeTint(resolvedTint)),
-                blurRadius = blurRadius
-            )
-        }
-    } else {
-        Modifier.background(resolvedTint, shape)
-    }
+    val hazeModifier = Modifier.background(resolvedTint, shape)
 
-    val agslModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        AgslRefractionHelper.createModifier(26.dp)
-    } else {
-        Modifier
-    }
+    // 注：已移除 AGSL 折射 RenderEffect —— 它会在玻璃底部边缘产生白色条块伪影
 
     return this
         .clip(shape)
         .then(hazeModifier)
-        .then(agslModifier)
         .drawWithCache {
             val width = size.width
             val height = size.height
