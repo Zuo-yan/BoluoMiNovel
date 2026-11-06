@@ -45,6 +45,8 @@ object PromptBuilder {
             if (useWorkshopCraft) {
                 appendLine()
                 appendLine(AiSkills.NOVEL_WORKSHOP.systemPrompt)
+                appendLine()
+                appendLine(AiSkills.NOVEL_SERIAL_EPIC.systemPrompt)
             }
         }
         val user = buildString {
@@ -93,6 +95,8 @@ object PromptBuilder {
             if (useWorkshopCraft) {
                 appendLine()
                 appendLine(AiSkills.NOVEL_WORKSHOP.systemPrompt)
+                appendLine()
+                appendLine(AiSkills.NOVEL_SERIAL_EPIC.systemPrompt)
             }
         }
         val user = buildString {
@@ -145,6 +149,9 @@ object PromptBuilder {
                 appendLine()
                 appendLine("【用户选择的技能，请按其要求作答】")
                 appendLine(skillPrompt)
+            } else {
+                appendLine()
+                appendLine(AiSkills.COMMENT_SMART_REPLY.systemPrompt)
             }
         }
         val messages = mutableListOf(ChatMessage("system", system))

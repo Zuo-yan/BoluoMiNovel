@@ -190,7 +190,7 @@ fun ContinuationScreen(
                         Text(
                             (parent?.content ?: "").takeLast(160),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -357,6 +357,69 @@ fun ContinuationScreen(
                         }
                         Spacer(Modifier.height(10.dp))
                         Text(streamingText, style = MaterialTheme.typography.bodyLarge)
+
+                        if (finished || (!streaming && streamingText.isNotBlank())) {
+                            Spacer(Modifier.height(16.dp))
+                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "保存已生成内容",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = titleDraft,
+                                onValueChange = {
+                                    titleDraft = it
+                                    viewModel.customTitle.value = it
+                                },
+                                label = { Text("章节标题（可自定义，留空自动命名）") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        viewModel.saveAndContinue(autoGenerateNext = false)
+                                        titleDraft = ""
+                                    },
+                                    modifier = Modifier.weight(1.3f)
+                                ) {
+                                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, Modifier.height(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("保存并续写下一章", maxLines = 1)
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        viewModel.save(onSaved)
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("保存并退出", maxLines = 1)
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                if (!viewModel.isBranchMode) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.appendToParentChapter(onSaved)
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("追加到本章末", maxLines = 1) }
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.reset() },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("重写本章", maxLines = 1) }
+                            }
+                        }
                     }
                 }
             }

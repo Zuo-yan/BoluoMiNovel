@@ -274,6 +274,7 @@ fun ReaderCompanionScreen(
         ) {
             val quickActions = listOf(
                 Triple("AI吐槽", Icons.Rounded.AutoAwesome, Color(0xFFE91E63)),
+                Triple("神评回复", Icons.Rounded.AutoAwesome, Color(0xFF3F51B5)),
                 Triple("解析深意", Icons.Rounded.AutoAwesome, Color(0xFF6750A4)),
                 Triple("情绪总结", Icons.Rounded.Tune, Color(0xFF625B71)),
                 Triple("剧情伏笔", Icons.Rounded.AutoAwesome, Color(0xFF009688)),
@@ -286,6 +287,7 @@ fun ReaderCompanionScreen(
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         val prompt = when (label) {
                             "AI吐槽" -> PromptBuilder.QUICK_ROAST
+                            "神评回复" -> "请针对此选段生成3条不同风格的高赞间贴神回复（反转吐槽、生动玩梗、深度共鸣），展现神级读者的幽默与洞察力。"
                             "解析深意" -> PromptBuilder.QUICK_ANALYZE
                             "情绪总结" -> PromptBuilder.QUICK_EMOTION
                             "剧情伏笔" -> "请结合上下文，分析这段文字中可能隐藏的伏笔与情节走向暗示。"

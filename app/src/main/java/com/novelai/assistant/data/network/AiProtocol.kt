@@ -43,6 +43,25 @@ object AiProtocol {
         }
     }
 
+    internal fun sanitizeAnthropicTurns(turns: List<ChatMessage>): List<ChatMessage> {
+        val nonBlank = turns.filter { it.content.isNotBlank() }
+        if (nonBlank.isEmpty()) return listOf(ChatMessage("user", "请继续创作正文。"))
+        val merged = mutableListOf<ChatMessage>()
+        for (turn in nonBlank) {
+            val role = if (turn.role == "assistant") "assistant" else "user"
+            if (merged.isNotEmpty() && merged.last().role == role) {
+                val prev = merged.removeAt(merged.size - 1)
+                merged.add(ChatMessage(role, "${prev.content}\n\n${turn.content}"))
+            } else {
+                merged.add(ChatMessage(role, turn.content))
+            }
+        }
+        if (merged.isNotEmpty() && merged.first().role != "user") {
+            merged.add(0, ChatMessage("user", "请根据上下文继续。"))
+        }
+        return merged
+    }
+
     fun body(config: ApiProviderConfig, messages: List<ChatMessage>, maxTokens: Int, temperature: Float): JsonObject = buildJsonObject {
         require(maxTokens > 0 && config.selectedModel.isNotBlank()) { "请先选择模型并设置有效的输出 Token" }
         val system = messages.filter { it.role in listOf("system", "developer") }.joinToString("\n\n") { it.content }
@@ -68,7 +87,8 @@ object AiProtocol {
             ProviderKind.ANTHROPIC -> {
                 put("model", config.selectedModel); put("stream", true); put("max_tokens", maxTokens)
                 if (system.isNotBlank()) put("system", system)
-                putJsonArray("messages") { turns.forEach { add(buildJsonObject { put("role", it.role); put("content", it.content) }) } }
+                val sanitized = sanitizeAnthropicTurns(turns)
+                putJsonArray("messages") { sanitized.forEach { add(buildJsonObject { put("role", it.role); put("content", it.content) }) } }
                 if (config.temperatureEnabled) put("temperature", temperature)
             }
             ProviderKind.GOOGLE_GEMINI -> {
@@ -99,7 +119,13 @@ class AiStreamDecoder(private val kind: ProviderKind) {
         fun usage(i: Long, o: Long) { input = maxOf(input, i); output = maxOf(output, o); if (input > 0 || output > 0) events += StreamEvent.Usage(input, output) }
         fun done(reason: String?) { finished = true; events += StreamEvent.Done(reason) }
         if (obj["error"] is JsonObject || obj.str("type") == "error") {
-            finished = true; return listOf(StreamEvent.Error("服务返回错误，请检查模型、密钥权限或请求参数"))
+            val errObj = obj["error"] as? JsonObject
+            val errMsg = errObj?.str("message")?.ifBlank { null }
+                ?: obj.str("message").ifBlank { null }
+                ?: errObj?.str("type")?.ifBlank { null }
+                ?: "服务返回错误，请检查模型、密钥权限或请求参数"
+            finished = true
+            return listOf(StreamEvent.Error(errMsg))
         }
         when (kind) {
             ProviderKind.OPENAI_COMPATIBLE -> {

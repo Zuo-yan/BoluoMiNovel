@@ -38,10 +38,20 @@ object ModelMetadata {
                 else -> return null
             }
             host == "api.deepseek.com" && config.kind != ProviderKind.GOOGLE_GEMINI && config.selectedModel in listOf("deepseek-flash", "deepseek-v4-pro") -> null to 393216
+            host == "api.anthropic.com" && config.kind == ProviderKind.ANTHROPIC -> when {
+                config.selectedModel.startsWith("claude-3-7-sonnet") -> 200000 to 8192
+                config.selectedModel.startsWith("claude-3-5-sonnet") -> 200000 to 8192
+                config.selectedModel.startsWith("claude-3-5-haiku") -> 200000 to 8192
+                config.selectedModel.startsWith("claude-3-opus") -> 200000 to 4096
+                else -> 200000 to 4096
+            }
             else -> return null
         }
-        val sourceUrl = if (host == "api.deepseek.com") "https://api-docs.deepseek.com/quick_start/pricing/"
-            else "https://developers.openai.com/api/docs/models/${config.selectedModel.substringBefore("-202")}"
+        val sourceUrl = when {
+            host == "api.deepseek.com" -> "https://api-docs.deepseek.com/quick_start/pricing/"
+            host == "api.anthropic.com" -> "https://docs.anthropic.com/en/docs/about-claude/models"
+            else -> "https://developers.openai.com/api/docs/models/${config.selectedModel.substringBefore("-202")}"
+        }
         return ModelCapability(config.baseUrl.trim().trimEnd('/'), config.selectedModel, config.kind, pair.second, pair.first,
             "内置官方资料 · 2026-10-16", System.currentTimeMillis(), sourceUrl)
     }
@@ -57,24 +67,36 @@ class ModelMetadataClient @Inject constructor(client: HttpClient) {
     } ?: throw IOException("模型接口请求超时，请检查网络或稍后重试")
     suspend fun list(config: ApiProviderConfig): List<String> {
         val ids = linkedSetOf<String>(); var cursor = ""; val seen = mutableSetOf<String>()
-        repeat(1000) {
-            val path = when (config.kind) {
-                ProviderKind.GOOGLE_GEMINI -> "/models?pageSize=100" + if (cursor.isBlank()) "" else "&pageToken=${encodePath(cursor)}"
-                ProviderKind.ANTHROPIC -> "/models?limit=100" + if (cursor.isBlank()) "" else "&after_id=${encodePath(cursor)}"
-                else -> "/models" + if (cursor.isBlank()) "" else "?after=${encodePath(cursor)}"
-            }
-            val obj = get(config, path)
-            val entries = obj.list(if (config.kind == ProviderKind.GOOGLE_GEMINI) "models" else "data")
-            entries.forEach { entry ->
-                val m = entry.jsonObject
-                if (config.kind != ProviderKind.GOOGLE_GEMINI || m.list("supportedGenerationMethods").any { it.jsonPrimitive.content == "generateContent" }) {
-                    val id = m.str(if (config.kind == ProviderKind.GOOGLE_GEMINI) "name" else "id").removePrefix("models/")
-                    if (id.isNotBlank()) ids += id
+        try {
+            repeat(1000) {
+                val path = when (config.kind) {
+                    ProviderKind.GOOGLE_GEMINI -> "/models?pageSize=100" + if (cursor.isBlank()) "" else "&pageToken=${encodePath(cursor)}"
+                    ProviderKind.ANTHROPIC -> "/models?limit=100" + if (cursor.isBlank()) "" else "&after_id=${encodePath(cursor)}"
+                    else -> "/models" + if (cursor.isBlank()) "" else "?after=${encodePath(cursor)}"
                 }
+                val obj = get(config, path)
+                val entries = obj.list(if (config.kind == ProviderKind.GOOGLE_GEMINI) "models" else "data")
+                entries.forEach { entry ->
+                    val m = entry.jsonObject
+                    if (config.kind != ProviderKind.GOOGLE_GEMINI || m.list("supportedGenerationMethods").any { it.jsonPrimitive.content == "generateContent" }) {
+                        val id = m.str(if (config.kind == ProviderKind.GOOGLE_GEMINI) "name" else "id").removePrefix("models/")
+                        if (id.isNotBlank()) ids += id
+                    }
+                }
+                cursor = if (config.kind == ProviderKind.GOOGLE_GEMINI) obj.str("nextPageToken") else if (obj.str("has_more") == "true") obj.str("last_id") else ""
+                if (cursor.isBlank()) return ids.toList().sorted()
+                check(seen.add(cursor)) { "模型列表分页游标重复，请检查服务接口" }
             }
-            cursor = if (config.kind == ProviderKind.GOOGLE_GEMINI) obj.str("nextPageToken") else if (obj.str("has_more") == "true") obj.str("last_id") else ""
-            if (cursor.isBlank()) return ids.toList().sorted()
-            check(seen.add(cursor)) { "模型列表分页游标重复，请检查服务接口" }
+        } catch (e: Exception) {
+            if (config.kind == ProviderKind.ANTHROPIC && ids.isEmpty()) {
+                return listOf(
+                    "claude-3-7-sonnet-20250219",
+                    "claude-3-5-sonnet-20241022",
+                    "claude-3-5-haiku-20241022",
+                    "claude-3-opus-20240229"
+                )
+            }
+            throw e
         }
         error("模型列表分页次数异常，未返回不完整列表")
     }

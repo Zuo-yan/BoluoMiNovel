@@ -202,8 +202,16 @@ fun ReaderScreen(
 
     val palette = ReaderPalettes.of(settings.bgTheme.name)
     val bgColor = Color(palette.background)
-    val onChromeColor = Color(palette.onChrome)
-    val secondaryColor = Color(palette.secondaryText)
+
+    val isReaderBgDark = settings.bgTheme == ReaderBgTheme.DARK || settings.bgTheme == ReaderBgTheme.BLACK
+    val isThemeDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    // 弹窗与控制栏深浅色：阅读底色暗色时强制暗色，否则跟随应用主题（修复跟随系统与应用主题切换被覆盖问题）
+    val isEffectiveDark = isReaderBgDark || isThemeDark
+    val isDarkReader = isEffectiveDark
+
+    // 控制栏文本与图标色：深色控制栏固定使用高对比度浅色文本，浅色控制栏使用调色板配置，彻底解决暗黑模式下AI续写旁边文字黑底黑字不可读问题
+    val onChromeColor = if (isDarkReader) Color(0xFFF2F2F7) else Color(palette.onChrome)
+    val secondaryColor = if (isDarkReader) Color(0xFFA5A5B2) else Color(palette.secondaryText)
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
 
@@ -238,17 +246,13 @@ fun ReaderScreen(
         }
     }
 
-    // 暗色阅读背景下切换状态栏图标为浅色
-        val isSystemDark = isSystemInDarkTheme()
-    val isThemeDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val isReaderBgDark = settings.bgTheme == ReaderBgTheme.DARK || settings.bgTheme == ReaderBgTheme.BLACK
-    val isEffectiveDark = isSystemDark || isThemeDark || isReaderBgDark
-    val isDarkReader = isEffectiveDark
-    DisposableEffect(isDarkReader) {
+    // 状态栏图标：依据当前书页背景真实亮度自适应（浅色背景用深色图标，深色背景用浅色图标）
+    val isBgDark = bgColor.luminance() < 0.5f
+    DisposableEffect(isBgDark) {
         val window = (view.context as? Activity)?.window
         val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
         val original = controller?.isAppearanceLightStatusBars
-        if (controller != null) controller.isAppearanceLightStatusBars = !isDarkReader
+        if (controller != null) controller.isAppearanceLightStatusBars = !isBgDark
         onDispose {
             if (controller != null && original != null) controller.isAppearanceLightStatusBars = original
         }
@@ -288,8 +292,12 @@ fun ReaderScreen(
         }
     }
 
-    BackHandler(enabled = tocOpen || settingsOpen || timerSheetOpen || quotedText != null || paragraphCommentsOpen || actionChapter != null || renameChapterTarget != null || confirmDeleteChapter != null) {
+    BackHandler(enabled = selectionMode || tocOpen || settingsOpen || timerSheetOpen || quotedText != null || paragraphCommentsOpen || actionChapter != null || renameChapterTarget != null || confirmDeleteChapter != null) {
         when {
+            selectionMode -> {
+                selectionMode = false
+                viewModel.clearQuote()
+            }
             actionChapter != null -> actionChapter = null
             renameChapterTarget != null -> renameChapterTarget = null
             confirmDeleteChapter != null -> confirmDeleteChapter = null
@@ -806,6 +814,48 @@ fun ReaderScreen(
                             modifier = Modifier.size(16.dp),
                             tint = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+        }
+
+        // ---------- 文字选择模式底部提示浮岛 ----------
+        AnimatedVisibility(
+            visible = selectionMode && quotedText == null,
+            enter = slideInVertically(spring(stiffness = 380f)) { it } + fadeIn(),
+            exit = slideOutVertically(spring(stiffness = 380f)) { it } + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = (navBarPad + 16.dp).coerceAtLeast(20.dp), start = 14.dp, end = 14.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = if (isDarkReader) Color(0xFF1E1E2A) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 8.dp,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isDarkReader) Color(0xFF383846) else MaterialTheme.colorScheme.outlineVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "文字选择模式中（长按拖拽光标选词）",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isDarkReader) Color.White else MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(
+                        onClick = {
+                            selectionMode = false
+                            viewModel.clearQuote()
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("退出选择", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -1662,13 +1712,20 @@ private fun PagedContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pages.size, hasNextChapter, hasPrevChapter) {
-                            if (!selectionMode) {
-                                detectTapGestures(
-                                    onTap = { offset ->
-                                        handleTap(offset.x, size.width.toFloat())
+                            detectTapGestures(
+                                onTap = { offset ->
+                                    val screenX = offset.x
+                                    val screenWidth = size.width.toFloat()
+                                    if (!selectionMode) {
+                                        handleTap(screenX, screenWidth)
+                                    } else {
+                                        // 选择模式下点击屏幕中央区域依然可呼出/收起控制栏，防止控制菜单唤醒失效
+                                        if (screenX in (screenWidth * 0.33f)..(screenWidth * 0.67f)) {
+                                            handleTap(screenX, screenWidth)
+                                        }
                                     }
-                                )
-                            }
+                                }
+                            )
                         }
                 ) {
                     Column(

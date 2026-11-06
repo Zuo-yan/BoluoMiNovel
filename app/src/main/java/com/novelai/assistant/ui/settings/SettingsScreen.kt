@@ -1,5 +1,6 @@
 package com.novelai.assistant.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,12 +8,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Cached
@@ -303,6 +310,8 @@ fun SettingsScreen(
         )
     }
 
+    val routeModelError by viewModel.routeModelError.collectAsStateWithLifecycle()
+
     // 任务分流配置弹窗
     routeScene?.let { scene ->
         RouteEditDialog(
@@ -311,6 +320,11 @@ fun SettingsScreen(
             current = if (scene == TaskScene.CONTINUATION) continuationRoute else companionRoute,
             routeModels = routeModels,
             loadingModels = loadingRouteModels,
+            routeModelError = routeModelError,
+            recommendedModels = viewModel.getRecommendedModels(
+                (if (scene == TaskScene.CONTINUATION) continuationRoute else companionRoute).providerId ?: providers.firstOrNull()?.id.orEmpty()
+            ),
+            onGetRecommendedModels = { viewModel.getRecommendedModels(it) },
             onFetchModels = { viewModel.fetchModelsFor(it) },
             onClearModels = { viewModel.clearRouteModels() },
             onDismiss = { routeScene = null },
@@ -329,6 +343,9 @@ private fun RouteEditDialog(
     current: com.novelai.assistant.data.repository.ModelRoute,
     routeModels: List<String>,
     loadingModels: Boolean,
+    routeModelError: String?,
+    recommendedModels: List<String>,
+    onGetRecommendedModels: (String) -> List<String>,
     onFetchModels: (String) -> Unit,
     onClearModels: () -> Unit,
     onDismiss: () -> Unit,
@@ -337,15 +354,21 @@ private fun RouteEditDialog(
     var providerId by remember { mutableStateOf(current.providerId ?: providers.firstOrNull()?.id ?: "") }
     val selectedProvider = providers.firstOrNull { it.id == providerId }
     var model by remember { mutableStateOf(current.model.ifBlank { selectedProvider?.selectedModel ?: "" }) }
+    var filterText by remember { mutableStateOf("") }
+    val recs = remember(providerId) { onGetRecommendedModels(providerId) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("配置${scene.label}") },
+        title = { Text("配置${scene.label}模型") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 if (providers.isEmpty()) {
-                    Text("请先在「模型与 API」中添加并启用提供商")
+                    Text("请先在「模型与 API」中添加并启用提供商", color = MaterialTheme.colorScheme.error)
                 }
+
                 // 提供商选择
                 Text("选择服务商 / API Key", style = MaterialTheme.typography.labelMedium)
                 Row(
@@ -360,44 +383,100 @@ private fun RouteEditDialog(
                             onClick = {
                                 providerId = p.id
                                 onClearModels()
-                                model = p.selectedModel
+                                filterText = ""
+                                if (p.selectedModel.isNotBlank()) model = p.selectedModel
                             },
                             label = { Text(p.providerName) }
                         )
                     }
                 }
+
+                // 推荐常用模型
+                if (recs.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("推荐模型：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            recs.forEach { candidate ->
+                                AssistChip(
+                                    onClick = { model = candidate },
+                                    label = { Text(candidate, style = MaterialTheme.typography.labelSmall) },
+                                    colors = if (model == candidate) {
+                                        AssistChipDefaults.assistChipColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    } else AssistChipDefaults.assistChipColors()
+                                )
+                            }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = model,
                     onValueChange = { model = it },
-                    label = { Text("模型名称（可手填或从列表选择）") },
+                    label = { Text("当前模型 ID") },
                     singleLine = true,
                     trailingIcon = {
                         if (loadingModels) {
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         } else {
-                            TextButton(onClick = { onFetchModels(providerId) }) { Text("拉取") }
+                            TextButton(onClick = { onFetchModels(providerId) }) { Text("拉取模型") }
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
-                // 模型列表
+
+                if (routeModelError != null) {
+                    Text(
+                        routeModelError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                // 拉取到的模型列表及过滤搜索
                 if (routeModels.isNotEmpty()) {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .height(180.dp)
-                            .verticalScroll(rememberScrollState())
+                            .heightIn(max = 200.dp)
                     ) {
-                        routeModels.forEach { m ->
-                            TextButton(
-                                onClick = { model = m },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    m,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1
-                                )
+                        OutlinedTextField(
+                            value = filterText,
+                            onValueChange = { filterText = it },
+                            placeholder = { Text("搜索拉取的 ${routeModels.size} 个模型…") },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                        )
+                        val filtered = remember(routeModels, filterText) {
+                            if (filterText.isBlank()) routeModels
+                            else routeModels.filter { it.contains(filterText, ignoreCase = true) }
+                        }
+                        LazyColumn(Modifier.fillMaxWidth()) {
+                            items(filtered, key = { it }) { m ->
+                                val isSelected = model == m
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { model = m },
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
+                                    shape = MaterialTheme.shapes.small
+                                ) {
+                                    Text(
+                                        text = m,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -408,7 +487,7 @@ private fun RouteEditDialog(
             TextButton(
                 onClick = { onSave(providerId, model) },
                 enabled = providerId.isNotBlank() && model.isNotBlank()
-            ) { Text("保存") }
+            ) { Text("保存配置") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )

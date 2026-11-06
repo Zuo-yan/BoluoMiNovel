@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -164,15 +165,16 @@ fun SettingRow(
 /** [原]/[AI]/[分] 章节来源徽标 */
 @Composable
 fun OriginBadge(originType: String, modifier: Modifier = Modifier) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val (label, color) = when (originType) {
-        "AI_CONTINUATION" -> "AI" to NovelColors.BadgeAi
+        "AI_CONTINUATION" -> "AI" to (if (isDark) NovelColors.IndigoLight else NovelColors.BadgeAi)
         "AI_BRANCH" -> "分" to NovelColors.BadgeBranch
-        else -> "原" to NovelColors.BadgeOriginal
+        else -> "原" to (if (isDark) Color(0xFFB5B5C2) else NovelColors.BadgeOriginal)
     }
     Box(
         modifier
             .clip(MaterialTheme.shapes.extraSmall)
-            .background(color.copy(alpha = 0.16f))
+            .background(color.copy(alpha = if (isDark) 0.22f else 0.16f))
             .padding(horizontal = 4.dp, vertical = 1.dp)
     ) {
         Text(
