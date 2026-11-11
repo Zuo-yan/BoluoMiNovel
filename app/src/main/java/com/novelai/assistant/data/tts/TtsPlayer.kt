@@ -139,21 +139,28 @@ class TtsPlayer @Inject constructor(
         setReferenceCounted(false)
     }
 
-    // 音频焦点管理
+    // 音频焦点管理与焦点临时丢失自愈状态
+    private var pausedByFocusLoss = false
+
     private val audioFocusManager = TtsAudioFocusManager(
         context = context,
         onLoss = { isTransient ->
             if (isTransient) {
-                // 收到临时音频丢失（如电话或导航音），暂停发音
-                pause()
+                // 收到临时音频丢失（如电话或导航音），仅临时暂停发音避让，不主动释放系统焦点，以便挂断后自动恢复
+                if (_speaking.value && !_paused.value) {
+                    pausedByFocusLoss = true
+                    pauseForTransientFocus()
+                }
             } else {
-                // 收到永久音频丢失（如其他音乐播放器启动），停止发音
+                // 收到永久音频丢失（如其他音乐播放器启动），停止发音并主动释放焦点
+                pausedByFocusLoss = false
                 pause()
             }
         },
         onGain = {
-            // 重新获取焦点，恢复发音
-            if (_paused.value) {
+            // 重新获取焦点，若此前因音频临时丢失而暂停，则自动恢复发音
+            if (pausedByFocusLoss && _paused.value) {
+                pausedByFocusLoss = false
                 resume()
             }
         }
@@ -366,6 +373,7 @@ class TtsPlayer @Inject constructor(
         onChapterEnd: (() -> Unit)? = null
     ) {
         if (!initOk && !isFallbackMode) return
+        pausedByFocusLoss = false
         playbackGeneration++
         chapterEndCallback = onChapterEnd
         rawParagraphs = paragraphs
@@ -574,8 +582,20 @@ class TtsPlayer @Inject constructor(
         }
     }
 
-    /** 暂停朗读 */
+    /** 临时音频焦点避让（如来电通话），不调用 abandonFocus()，保留监听以在恢复焦点后自愈续播 */
+    private fun pauseForTransientFocus() {
+        playbackGeneration++
+        fallbackJob?.cancel()
+        _paused.value = true
+        _speaking.value = false
+        tts?.stop()
+        releaseWakeLock()
+        TtsMediaManager.syncPlayerState(this, isPlaying = true, isPaused = true)
+    }
+
+    /** 暂停朗读（用户主动暂停或永久丢失焦点） */
     fun pause() {
+        pausedByFocusLoss = false
         playbackGeneration++
         fallbackJob?.cancel()
         if (!_speaking.value && !_paused.value) return
@@ -589,6 +609,7 @@ class TtsPlayer @Inject constructor(
 
     /** 恢复朗读 */
     fun resume() {
+        pausedByFocusLoss = false
         if (!_paused.value) return
         _paused.value = false
         audioFocusManager.requestFocus()
@@ -599,6 +620,7 @@ class TtsPlayer @Inject constructor(
 
     /** 停止朗读并清理资源 */
     fun stop() {
+        pausedByFocusLoss = false
         playbackGeneration++
         fallbackJob?.cancel()
         _paused.value = false

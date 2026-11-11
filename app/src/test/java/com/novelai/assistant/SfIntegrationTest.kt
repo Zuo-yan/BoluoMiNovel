@@ -492,4 +492,24 @@ class SfIntegrationTest {
         assertEquals("2026-06-05 13:24:30", comment.replies[0].createTime)
         assertEquals("灰烬", comment.replies[0].roleName)
     }
+
+    @Test fun downloadTaskSerializationPreservesStateAndSupportsAutoRetryMessages() {
+        val task = SfDownloadTask(
+            bookId = "sf:12345",
+            title = "恶役少爷怎么可能会是圣女？",
+            chapterIds = listOf("c1", "c2", "c3"),
+            completed = 87,
+            failures = mapOf("c2" to "VIP未购"),
+            running = true,
+            paused = false,
+            message = "菠萝包暂未接受请求签名，请稍后重新加载 (417) · 5秒后自动重试..."
+        )
+        val jsonStr = Json.encodeToString(SfDownloadTask.serializer(), task)
+        val decoded = Json.decodeFromString(SfDownloadTask.serializer(), jsonStr)
+        assertEquals(task.bookId, decoded.bookId)
+        assertEquals(task.completed, decoded.completed)
+        assertEquals(task.failures, decoded.failures)
+        assertEquals(task.message, decoded.message)
+        assertTrue(decoded.running)
+    }
 }

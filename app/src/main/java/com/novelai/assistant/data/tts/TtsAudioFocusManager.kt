@@ -27,10 +27,14 @@ class TtsAudioFocusManager(
                 hasFocus = false
                 onLoss(false)
             }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 hasFocus = false
                 onLoss(true)
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // 通知铃声与短提示音：
+                // 因 AudioFocusRequest 未开启 setWillPauseWhenDucked，系统框架层会自动降低媒体音量 (Duck) 并播送提示音。
+                // 此处绝不调用 onLoss 强制打断听书，确保通知响过之后朗读丝滑持续。
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasFocus = true
@@ -53,7 +57,8 @@ class TtsAudioFocusManager(
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(playbackAttrs)
                 .setAcceptsDelayedFocusGain(true)
-                .setWillPauseWhenDucked(true)
+                // 关键点：设置为 false，通知铃声到来时由系统自动降低音量 (Duck) 而非打断暂停
+                .setWillPauseWhenDucked(false)
                 .setOnAudioFocusChangeListener(focusChangeListener)
                 .build()
 
