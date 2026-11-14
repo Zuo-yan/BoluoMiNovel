@@ -1,6 +1,7 @@
 package com.novelai.assistant.ui.discover
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,16 +11,21 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BookmarkAdd
@@ -31,22 +37,14 @@ import androidx.compose.material.icons.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +54,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,11 +64,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.db.BookEntity
 import com.novelai.assistant.data.sf.SfBookDetail
 import com.novelai.assistant.data.sf.SfComment
+import com.novelai.assistant.ui.components.AdaptiveCenteredContainer
+import com.novelai.assistant.ui.components.AdaptiveTwoPane
 import com.novelai.assistant.ui.components.AsyncCover
+import com.novelai.assistant.ui.components.GlassCapsuleButton
+import com.novelai.assistant.ui.components.GlassCircleButton
+import com.novelai.assistant.ui.components.GlassSceneType
+import com.novelai.assistant.ui.components.GlassSectionCard
+import com.novelai.assistant.ui.components.GlassWidgetSize
+import com.novelai.assistant.ui.components.LiquidGlassBox
+import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
 import com.novelai.assistant.ui.components.SfAvatar
 import com.novelai.assistant.ui.components.formatChineseCount
+import com.novelai.assistant.ui.theme.NovelColors
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SfBookDetailScreen(
     bookId: String,
@@ -114,197 +124,344 @@ fun SfBookDetailScreen(
     val author = detail?.author?.ifBlank { localBook?.author } ?: localBook?.author ?: ""
     val cover = detail?.cover ?: localBook?.coverUri
 
+    val adaptive = LocalAdaptiveMetrics.current
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val primaryText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val accentText = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    val openReaderAction = {
+        val readingIndex = localBook?.currentReadingChapterIndex ?: 0
+        onOpenReader(targetBookId, readingIndex)
+    }
+
     Scaffold(
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+    ) { _ ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            AdaptiveCenteredContainer(
+                maxWidth = adaptive.maxContentWidth,
+                horizontalPadding = adaptive.horizontalPadding
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GlassCircleButton(
+                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回",
+                        onClick = onBack
+                    )
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
                     if (isSfBook) {
-                        IconButton(
-                            onClick = { viewModel.addToCloudShelf(rawId) },
-                            enabled = !isDetailLoading
-                        ) {
-                            Icon(Icons.Rounded.CloudUpload, contentDescription = "加入菠萝包云端书架")
-                        }
+                        GlassCircleButton(
+                            icon = Icons.Rounded.CloudUpload,
+                            contentDescription = "加入菠萝包云端书架",
+                            onClick = { if (!isDetailLoading) viewModel.addToCloudShelf(rawId) },
+                            tint = if (isDetailLoading) secondaryText.copy(alpha = 0.45f) else primaryText
+                        )
                     }
-                    IconButton(onClick = { viewModel.loadBookDetail(bookId) }, enabled = !isDetailLoading) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            SfBookDetailBottomBar(
-                localBook = localBook,
-                onToggleBookshelf = { viewModel.toggleBookshelf(targetBookId) },
-                onShowTools = { showTools = true },
-                onOpenCatalog = { onOpenCatalog(targetBookId) },
-                onOpenReader = {
-                    val readingIndex = localBook?.currentReadingChapterIndex ?: 0
-                    onOpenReader(targetBookId, readingIndex)
-                }
-            )
-        }
-    ) { innerPadding ->
-        if (isDetailLoading && detail == null) {
-            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CircularProgressIndicator()
-                    Text("正在获取书籍完整信息...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    GlassCircleButton(
+                        icon = Icons.Rounded.Refresh,
+                        contentDescription = "刷新",
+                        onClick = { if (!isDetailLoading) viewModel.loadBookDetail(bookId) },
+                        tint = if (isDetailLoading) secondaryText.copy(alpha = 0.45f) else primaryText
+                    )
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                detailError?.let { error ->
-                    item {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+
+            if (isDetailLoading && detail == null) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    GlassSectionCard(
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                        contentPadding = PaddingValues(28.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            CircularProgressIndicator()
+                            Text(
+                                text = "正在获取书籍完整信息...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = secondaryText
+                            )
+                        }
+                    }
+                }
+            } else if (adaptive.twoPaneEnabled) {
+                AdaptiveCenteredContainer(
+                    maxWidth = adaptive.maxContentWidth,
+                    horizontalPadding = adaptive.horizontalPadding,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    AdaptiveTwoPane(
+                        splitEnabled = true,
+                        primaryFraction = 0.40f,
+                        primaryPane = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = 6.dp, bottom = navBottom + 20.dp)
                             ) {
-                                Text(
-                                    error,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                TextButton(onClick = { viewModel.loadBookDetail(bookId) }) {
-                                    Text("重试")
+                                LiquidGlassBox(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    cornerRadius = 26.dp,
+                                    widgetSize = GlassWidgetSize.BIG,
+                                    sceneType = GlassSceneType.GENERAL,
+                                    interactive = false,
+                                    skipRenderLayer = true,
+                                    shadowElevation = 10.dp
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(20.dp),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        SfBookHeader(
+                                            title = title,
+                                            author = author,
+                                            cover = cover,
+                                            isSfBook = isSfBook,
+                                            detail = detail,
+                                            fallbackChapterCount = chapters.size,
+                                            onOpenAuthor = { onOpenAuthor(rawId, author) }
+                                        )
+
+                                        val tags = detail?.tags.orEmpty()
+                                        if (tags.isNotEmpty()) {
+                                            SfBookTagsRow(tags = tags)
+                                        }
+
+                                        val progress = localBook?.readingProgressPercent?.toInt() ?: 0
+                                        val readingIndex = localBook?.currentReadingChapterIndex ?: 0
+                                        val inShelf = localBook?.inBookshelf == true
+
+                                        GlassCapsuleButton(
+                                            text = if (progress > 0) "继续阅读 (第${readingIndex + 1}章)" else "开始阅读",
+                                            onClick = openReaderAction,
+                                            filled = true,
+                                            icon = Icons.Rounded.PlayArrow,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            GlassCapsuleButton(
+                                                text = if (inShelf) "已在书架" else "加入书架",
+                                                onClick = { viewModel.toggleBookshelf(targetBookId) },
+                                                filled = false,
+                                                icon = if (inShelf) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
+                                                modifier = Modifier.weight(1.1f)
+                                            )
+                                            GlassCapsuleButton(
+                                                text = "下载",
+                                                onClick = { showTools = true },
+                                                filled = false,
+                                                icon = Icons.Rounded.Download,
+                                                modifier = Modifier.weight(0.95f)
+                                            )
+                                            GlassCapsuleButton(
+                                                text = "目录",
+                                                onClick = { onOpenCatalog(targetBookId) },
+                                                filled = false,
+                                                icon = Icons.Rounded.Menu,
+                                                modifier = Modifier.weight(0.95f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        secondaryPane = {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(top = 6.dp, bottom = navBottom + 24.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                detailError?.let { error ->
+                                    item {
+                                        SfDetailErrorCard(
+                                            error = error,
+                                            onRetry = { viewModel.loadBookDetail(bookId) }
+                                        )
+                                    }
+                                }
+
+                                item {
+                                    SfBookMetricsCard(detail = detail)
+                                }
+
+                                val introText = detail?.intro?.ifBlank { "暂无简介内容" } ?: "暂无简介内容"
+                                item {
+                                    SfBookIntroCard(
+                                        introText = introText,
+                                        expanded = introExpanded,
+                                        onToggle = { introExpanded = !introExpanded }
+                                    )
+                                }
+
+                                item {
+                                    SfBookCatalogPreviewCard(
+                                        latestChapterTitle = detail?.latestChapterTitle?.ifBlank { chapters.lastOrNull()?.title },
+                                        chapterCount = chapters.size,
+                                        onClick = { onOpenCatalog(targetBookId) }
+                                    )
+                                }
+
+                                if (isSfBook) {
+                                    item {
+                                        GlassCapsuleButton(
+                                            text = "看看收录这部作品的相关书单",
+                                            onClick = { onOpenRelatedLists(bookId) },
+                                            filled = false,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    item {
+                                        SfBookCommentsSection(
+                                            comments = comments,
+                                            isLoading = isCommentsLoading,
+                                            isLoadingMore = isCommentsLoadingMore,
+                                            hasMore = commentsHasMore,
+                                            error = commentsError,
+                                            onRetryInitial = { viewModel.loadComments(bookId) },
+                                            onLoadMore = { viewModel.loadMoreComments() }
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                }
-
-                item {
-                    SfBookHeader(
-                        title = title,
-                        author = author,
-                        cover = cover,
-                        isSfBook = isSfBook,
-                        detail = detail,
-                        fallbackChapterCount = chapters.size,
-                        onOpenAuthor = { onOpenAuthor(rawId, author) }
                     )
                 }
-
-                item {
-                    SfBookMetricsCard(detail = detail)
-                }
-
-                val tags = detail?.tags.orEmpty()
-                if (tags.isNotEmpty()) {
-                    item {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            tags.forEach { tag ->
-                                SuggestionChip(
-                                    onClick = {},
-                                    label = { Text(tag) },
-                                    shape = RoundedCornerShape(8.dp)
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = adaptive.horizontalPadding,
+                            end = adaptive.horizontalPadding,
+                            top = 6.dp,
+                            bottom = navBottom + 96.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        detailError?.let { error ->
+                            item {
+                                SfDetailErrorCard(
+                                    error = error,
+                                    onRetry = { viewModel.loadBookDetail(bookId) }
                                 )
                             }
                         }
-                    }
-                }
 
-                val introText = detail?.intro?.ifBlank { "暂无简介内容" } ?: "暂无简介内容"
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("作品简介", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                text = introText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = if (introExpanded) Int.MAX_VALUE else 4,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable { introExpanded = !introExpanded }
+                        item {
+                            GlassSectionCard(contentPadding = PaddingValues(16.dp)) {
+                                SfBookHeader(
+                                    title = title,
+                                    author = author,
+                                    cover = cover,
+                                    isSfBook = isSfBook,
+                                    detail = detail,
+                                    fallbackChapterCount = chapters.size,
+                                    onOpenAuthor = { onOpenAuthor(rawId, author) }
+                                )
+                            }
+                        }
+
+                        item {
+                            SfBookMetricsCard(detail = detail)
+                        }
+
+                        val tags = detail?.tags.orEmpty()
+                        if (tags.isNotEmpty()) {
+                            item {
+                                SfBookTagsRow(tags = tags)
+                            }
+                        }
+
+                        val introText = detail?.intro?.ifBlank { "暂无简介内容" } ?: "暂无简介内容"
+                        item {
+                            SfBookIntroCard(
+                                introText = introText,
+                                expanded = introExpanded,
+                                onToggle = { introExpanded = !introExpanded }
                             )
-                            if (introText.length > 80) {
-                                Text(
-                                    text = if (introExpanded) "收起简介" else "展开完整简介",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable { introExpanded = !introExpanded }
+                        }
+
+                        item {
+                            SfBookCatalogPreviewCard(
+                                latestChapterTitle = detail?.latestChapterTitle?.ifBlank { chapters.lastOrNull()?.title },
+                                chapterCount = chapters.size,
+                                onClick = { onOpenCatalog(targetBookId) }
+                            )
+                        }
+
+                        if (isSfBook) {
+                            item {
+                                GlassCapsuleButton(
+                                    text = "看看收录这部作品的相关书单",
+                                    onClick = { onOpenRelatedLists(bookId) },
+                                    filled = false,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            item {
+                                SfBookCommentsSection(
+                                    comments = comments,
+                                    isLoading = isCommentsLoading,
+                                    isLoadingMore = isCommentsLoadingMore,
+                                    hasMore = commentsHasMore,
+                                    error = commentsError,
+                                    onRetryInitial = { viewModel.loadComments(bookId) },
+                                    onLoadMore = { viewModel.loadMoreComments() }
                                 )
                             }
                         }
                     }
-                }
 
-                item {
-                    Surface(
-                        onClick = { onOpenCatalog(targetBookId) },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Rounded.FormatListBulleted, null, tint = MaterialTheme.colorScheme.primary)
-                            Column(Modifier.weight(1f)) {
-                                Text("章节目录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                val latest = detail?.latestChapterTitle?.ifBlank { chapters.lastOrNull()?.title }
-                                Text(
-                                    text = if (!latest.isNullOrBlank()) "最新：$latest" else "共 ${chapters.size} 章",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Icon(Icons.Rounded.ChevronRight, "查看完整目录")
-                        }
-                    }
-                }
-
-                if (isSfBook) {
-                    item {
-                        OutlinedButton(onClick = { onOpenRelatedLists(bookId) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("看看收录这部作品的相关书单")
-                        }
-                    }
-                    item {
-                        SfBookCommentsSection(
-                            comments = comments,
-                            isLoading = isCommentsLoading,
-                            isLoadingMore = isCommentsLoadingMore,
-                            hasMore = commentsHasMore,
-                            error = commentsError,
-                            onRetryInitial = { viewModel.loadComments(bookId) },
-                            onLoadMore = { viewModel.loadMoreComments() }
-                        )
-                    }
+                    SfBookDetailBottomBar(
+                        localBook = localBook,
+                        onToggleBookshelf = { viewModel.toggleBookshelf(targetBookId) },
+                        onShowTools = { showTools = true },
+                        onOpenCatalog = { onOpenCatalog(targetBookId) },
+                        onOpenReader = openReaderAction,
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
                 }
             }
         }
@@ -323,6 +480,42 @@ private fun formatWordCount(words: Long): String =
     if (words >= 10_000L) "%.1f万字".format(words / 10_000.0) else "$words 字"
 
 @Composable
+private fun SfDetailErrorCard(
+    error: String,
+    onRetry: () -> Unit
+) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    LiquidGlassBox(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 18.dp,
+        widgetSize = GlassWidgetSize.SMALL,
+        sceneType = GlassSceneType.GENERAL,
+        interactive = false,
+        skipRenderLayer = true,
+        tint = MaterialTheme.colorScheme.errorContainer.copy(alpha = if (isDark) 0.45f else 0.65f),
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onRetry) {
+                Text("重试")
+            }
+        }
+    }
+}
+
+@Composable
 private fun SfBookHeader(
     title: String,
     author: String,
@@ -332,6 +525,12 @@ private fun SfBookHeader(
     fallbackChapterCount: Int,
     onOpenAuthor: () -> Unit
 ) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val primaryText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val accentText = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
+    val pillBg = if (isDark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.05f)
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -340,73 +539,84 @@ private fun SfBookHeader(
             title = title,
             uri = cover,
             modifier = Modifier
-                .width(115.dp)
-                .height(160.dp),
+                .width(112.dp)
+                .height(156.dp),
             shape = RoundedCornerShape(14.dp),
             maxDimension = 512
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
+                color = primaryText,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
             if (author.isNotBlank()) {
-                Surface(
-                    onClick = onOpenAuthor,
-                    enabled = isSfBook,
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f),
-                    modifier = Modifier.heightIn(min = 48.dp)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.22f else 0.12f))
+                        .clickable(enabled = isSfBook, onClick = onOpenAuthor)
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
                             text = "作者：$author",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Medium
+                            color = accentText,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         if (isSfBook) {
                             Icon(
-                                Icons.Rounded.ChevronRight,
-                                "查看作者作品集",
-                                tint = MaterialTheme.colorScheme.primary,
+                                imageVector = Icons.Rounded.ChevronRight,
+                                contentDescription = "查看作者作品集",
+                                tint = accentText,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (detail?.isFinish == true) MaterialTheme.colorScheme.tertiaryContainer
-                    else MaterialTheme.colorScheme.secondaryContainer
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (detail?.isFinish == true) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
+                            else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
                         text = if (detail?.isFinish == true) "已完结" else "连载中",
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall
+                        style = MaterialTheme.typography.labelSmall,
+                        color = primaryText
                     )
                 }
                 if (!detail?.typeName.isNullOrBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(pillBg)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = detail?.typeName.orEmpty(),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall
+                            style = MaterialTheme.typography.labelSmall,
+                            color = secondaryText
                         )
                     }
                 }
@@ -416,7 +626,7 @@ private fun SfBookHeader(
             Text(
                 text = "$wordsText · 共 $chapterCount 章",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = secondaryText
             )
 
             val mk = detail?.markCount ?: 0L
@@ -431,14 +641,14 @@ private fun SfBookHeader(
                         text = "${formatChineseCount(mk)}$markSuffix 收藏",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = accentText
                     )
                 }
                 if (vt > 0L) {
                     Text(
                         text = "${formatChineseCount(vt)} 人气",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = secondaryText
                     )
                 }
             }
@@ -446,46 +656,164 @@ private fun SfBookHeader(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SfBookMetricsCard(detail: SfBookDetail?) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+private fun SfBookTagsRow(tags: List<String>) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val bg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.72f)
+    val border = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.08f)
+    val textColor = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
+        tags.forEach { tag ->
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(bg)
+                    .border(0.7.dp, border, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = tag,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = textColor
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SfBookMetricsCard(detail: SfBookDetail?) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val primaryText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+
+    GlassSectionCard(contentPadding = PaddingValues(vertical = 14.dp, horizontal = 12.dp)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 14.dp, horizontal = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    formatWordCount(detail?.charCount ?: 0L),
+                    text = formatWordCount(detail?.charCount ?: 0L),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = primaryText
                 )
                 Text(
-                    if (detail?.isFinish == true) "完结" else "连载",
+                    text = if (detail?.isFinish == true) "完结" else "连载",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = secondaryText
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val tickets = detail?.ticketCount ?: 0
-                Text("$tickets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("月票", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = "$tickets",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = primaryText
+                )
+                Text("月票", style = MaterialTheme.typography.labelSmall, color = secondaryText)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val favs = detail?.favCount ?: 0L
                 Text(
-                    if (favs > 0) "$favs" else "-",
+                    text = if (favs > 0) "$favs" else "-",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = primaryText
                 )
-                Text("点赞", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("点赞", style = MaterialTheme.typography.labelSmall, color = secondaryText)
             }
+        }
+    }
+}
+
+@Composable
+private fun SfBookIntroCard(
+    introText: String,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val primaryText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val accentText = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
+
+    GlassSectionCard(
+        title = "作品简介",
+        actionLabel = if (introText.length > 80) {
+            if (expanded) "收起" else "展开"
+        } else null,
+        onActionClick = if (introText.length > 80) onToggle else null,
+        contentPadding = PaddingValues(16.dp)
+    ) {
+        Text(
+            text = introText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = primaryText.copy(alpha = 0.88f),
+            maxLines = if (expanded) Int.MAX_VALUE else 4,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+        )
+        if (introText.length > 80) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = if (expanded) "收起简介" else "展开完整简介",
+                style = MaterialTheme.typography.labelMedium,
+                color = accentText,
+                modifier = Modifier.clickable(onClick = onToggle)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SfBookCatalogPreviewCard(
+    latestChapterTitle: String?,
+    chapterCount: Int,
+    onClick: () -> Unit
+) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val primaryText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val accentText = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
+
+    GlassSectionCard(contentPadding = PaddingValues(0.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Rounded.FormatListBulleted, contentDescription = null, tint = accentText)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "章节目录",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = primaryText
+                )
+                Text(
+                    text = if (!latestChapterTitle.isNullOrBlank()) "最新：$latestChapterTitle" else "共 $chapterCount 章",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = "查看完整目录", tint = secondaryText)
         }
     }
 }
@@ -500,24 +828,24 @@ private fun SfBookCommentsSection(
     onRetryInitial: () -> Unit,
     onLoadMore: () -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth()
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val primaryText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val accentText = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
+    val itemBg = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
+
+    GlassSectionCard(
+        title = "读者书评" + if (comments.isNotEmpty()) " (${comments.size}${if (hasMore) "+" else ""})" else "",
+        contentPadding = PaddingValues(16.dp)
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "读者书评" + if (comments.isNotEmpty()) " (${comments.size}${if (hasMore) "+" else ""})" else "",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (isLoading) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (isLoading) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("正在读取读者书评…", style = MaterialTheme.typography.bodySmall, color = secondaryText)
                 }
             }
             if (comments.isNotEmpty()) {
@@ -525,9 +853,9 @@ private fun SfBookCommentsSection(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                            .padding(10.dp),
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(itemBg)
+                            .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
@@ -540,27 +868,44 @@ private fun SfBookCommentsSection(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 SfAvatar(c.avatar, c.displayName, Modifier.size(24.dp))
-                                Text(c.displayName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+                                Text(
+                                    text = c.displayName,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = primaryText
+                                )
                                 if (c.vipLevel > 0) {
-                                    Text("VIP ${c.vipLevel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        text = "VIP ${c.vipLevel}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = accentText
+                                    )
                                 }
                             }
-                            Text(c.createTime, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            Text(
+                                text = c.createTime,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryText
+                            )
                         }
-                        Text(c.content, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            text = c.content,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = primaryText
+                        )
                         if (c.favCount > 0 || c.replyNum > 0 || c.isStick) {
                             Row(
-                                Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 if (c.isStick) {
-                                    Text("置顶", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    Text("置顶", style = MaterialTheme.typography.labelSmall, color = accentText)
                                 }
                                 if (c.favCount > 0) {
-                                    Text("有用 ${c.favCount}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("有用 ${c.favCount}", style = MaterialTheme.typography.labelSmall, color = secondaryText)
                                 }
                                 if (c.replyNum > 0) {
-                                    Text("回复 ${c.replyNum}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("回复 ${c.replyNum}", style = MaterialTheme.typography.labelSmall, color = secondaryText)
                                 }
                             }
                         }
@@ -568,38 +913,34 @@ private fun SfBookCommentsSection(
                 }
                 if (error != null) {
                     Column(
-                        Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = onLoadMore) { Text("重试加载更多") }
                     }
                 } else if (hasMore) {
-                    OutlinedButton(
+                    GlassCapsuleButton(
+                        text = if (isLoadingMore) "正在加载历史书评…" else "加载更多历史书评",
                         onClick = onLoadMore,
+                        filled = false,
                         enabled = !isLoadingMore,
                         modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (isLoadingMore) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(if (isLoadingMore) "正在加载历史书评…" else "加载更多历史书评")
-                    }
+                    )
                 } else {
                     Text(
-                        "已显示全部可读取书评",
+                        text = "已显示全部可读取书评",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = secondaryText,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                 }
             } else if (!isLoading) {
                 if (error != null) {
                     Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onRetryInitial) { Text("重试") }
+                    GlassCapsuleButton(text = "重试", onClick = onRetryInitial, filled = false)
                 } else {
-                    Text("暂无书评内容", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text("暂无书评内容", style = MaterialTheme.typography.bodySmall, color = secondaryText)
                 }
             }
         }
@@ -612,70 +953,62 @@ private fun SfBookDetailBottomBar(
     onToggleBookshelf: () -> Unit,
     onShowTools: () -> Unit,
     onOpenCatalog: () -> Unit,
-    onOpenReader: () -> Unit
+    onOpenReader: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Surface(
-        tonalElevation = 6.dp,
-        shadowElevation = 8.dp,
-        color = MaterialTheme.colorScheme.surface
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val primaryText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
+    val accentText = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
+    val inShelf = localBook?.inBookshelf == true
+    val progress = localBook?.readingProgressPercent?.toInt() ?: 0
+    val readingIndex = localBook?.currentReadingChapterIndex ?: 0
+
+    LiquidGlassBox(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        cornerRadius = 28.dp,
+        widgetSize = GlassWidgetSize.SMALL,
+        sceneType = GlassSceneType.IMMERSIVE,
+        interactive = true,
+        shadowElevation = 14.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            val inShelf = localBook?.inBookshelf == true
-            OutlinedButton(
+            GlassCircleButton(
+                icon = if (inShelf) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
+                contentDescription = if (inShelf) "已在书架" else "加入书架",
                 onClick = onToggleBookshelf,
-                modifier = Modifier.weight(1.1f),
-                contentPadding = PaddingValues(horizontal = 4.dp),
-                colors = if (inShelf) ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-                else ButtonDefaults.outlinedButtonColors()
-            ) {
-                Icon(
-                    if (inShelf) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
-                    null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(if (inShelf) "已在书架" else "加入书架", maxLines = 1)
-            }
-            OutlinedButton(
+                size = 42.dp,
+                tint = if (inShelf) accentText else primaryText
+            )
+            GlassCircleButton(
+                icon = Icons.Rounded.Download,
+                contentDescription = "下载与导出",
                 onClick = onShowTools,
-                modifier = Modifier.weight(0.9f),
-                contentPadding = PaddingValues(horizontal = 4.dp)
-            ) {
-                Icon(Icons.Rounded.Download, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(2.dp))
-                Text("下载")
-            }
-            OutlinedButton(
+                size = 42.dp,
+                tint = primaryText
+            )
+            GlassCircleButton(
+                icon = Icons.Rounded.Menu,
+                contentDescription = "章节目录",
                 onClick = onOpenCatalog,
-                modifier = Modifier.weight(0.9f),
-                contentPadding = PaddingValues(horizontal = 4.dp)
-            ) {
-                Icon(Icons.Rounded.Menu, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(2.dp))
-                Text("目录")
-            }
-            Button(
+                size = 42.dp,
+                tint = primaryText
+            )
+            GlassCapsuleButton(
+                text = if (progress > 0) "继续(${readingIndex + 1}章)" else "开始阅读",
                 onClick = onOpenReader,
-                modifier = Modifier.weight(1.5f),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp)
-            ) {
-                Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(2.dp))
-                val progress = localBook?.readingProgressPercent?.toInt() ?: 0
-                val readingIndex = localBook?.currentReadingChapterIndex ?: 0
-                Text(
-                    if (progress > 0) "继续(${readingIndex + 1}章)" else "开始阅读",
-                    maxLines = 1
-                )
-            }
+                filled = true,
+                icon = Icons.Rounded.PlayArrow,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
