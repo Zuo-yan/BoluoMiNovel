@@ -68,7 +68,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.novelai.assistant.data.db.BookSourceType
-import com.novelai.assistant.ui.components.liquidGlass
+import com.novelai.assistant.ui.components.GlassSceneType
+import com.novelai.assistant.ui.components.GlassWidgetSize
+import com.novelai.assistant.ui.components.LiquidGlassBox
 import com.novelai.assistant.ui.theme.ReaderPalette
 import dev.chrisbanes.haze.HazeState
 import java.util.Locale
@@ -117,22 +119,14 @@ internal fun BoxScope.ReaderTopBar(
             .padding(top = statusBarPad + 8.dp)
             .padding(horizontal = 14.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 12.dp,
-                    shape = RoundedCornerShape(26.dp),
-                    ambientColor = Color.Black.copy(alpha = 0.16f),
-                    spotColor = Color.Black.copy(alpha = 0.24f)
-                )
-                .liquidGlass(
-                    state = hazeState,
-                    tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.86f),
-                    shape = RoundedCornerShape(26.dp),
-                    blurRadius = 28.dp,
-                    enableFlowSheen = false
-                )
+        LiquidGlassBox(
+            modifier = Modifier.fillMaxWidth(),
+            state = hazeState,
+            tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.86f),
+            cornerRadius = 26.dp,
+            widgetSize = GlassWidgetSize.SMALL,
+            sceneType = GlassSceneType.IMMERSIVE,
+            shadowElevation = 12.dp
         ) {
             Column(Modifier.padding(vertical = 4.dp)) {
                 Row(
@@ -274,22 +268,14 @@ internal fun BoxScope.ReaderBottomBar(
             .padding(bottom = (navBarPad + 12.dp).coerceAtLeast(16.dp))
             .padding(horizontal = 14.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 14.dp,
-                    shape = RoundedCornerShape(26.dp),
-                    ambientColor = Color.Black.copy(alpha = 0.16f),
-                    spotColor = Color.Black.copy(alpha = 0.25f)
-                )
-                .liquidGlass(
-                    state = hazeState,
-                    tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
-                    shape = RoundedCornerShape(26.dp),
-                    blurRadius = 28.dp,
-                    enableFlowSheen = isCurrentBookSpeaking
-                )
+        LiquidGlassBox(
+            modifier = Modifier.fillMaxWidth(),
+            state = hazeState,
+            tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
+            cornerRadius = 26.dp,
+            widgetSize = GlassWidgetSize.SMALL,
+            sceneType = GlassSceneType.IMMERSIVE,
+            shadowElevation = 14.dp
         ) {
             Column(Modifier.padding(vertical = 4.dp)) {
                 // 听书控制胶囊（仅属于当前正在朗读的书籍）
@@ -486,27 +472,20 @@ internal fun BoxScope.ReaderQuoteBar(
                 end = 14.dp
             )
     ) {
-        Box(
-            modifier = Modifier
-                .shadow(
-                    elevation = 12.dp,
-                    shape = RoundedCornerShape(24.dp),
-                    ambientColor = Color.Black.copy(alpha = 0.16f),
-                    spotColor = Color.Black.copy(alpha = 0.25f)
-                )
-                .liquidGlass(
-                    state = hazeState,
-                    tint = if (isDarkReader) Color(0xFF161622).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
-                    shape = RoundedCornerShape(24.dp),
-                    blurRadius = 24.dp,
-                    enableFlowSheen = false
-                )
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+        LiquidGlassBox(
+            state = hazeState,
+            tint = if (isDarkReader) Color(0xFF161622).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
+            cornerRadius = 24.dp,
+            widgetSize = GlassWidgetSize.SMALL,
+            sceneType = GlassSceneType.IMMERSIVE,
+            shadowElevation = 12.dp
         ) {
             // 用 FlowRow + 定宽上限：横向滚动会让 Row 按不限宽测量，
             // 外层 Surface 随之撑出屏幕，末尾的“本章间贴”被推到不可点区域。
             FlowRow(
-                Modifier.fillMaxWidth(),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 maxItemsInEachRow = 3,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp)

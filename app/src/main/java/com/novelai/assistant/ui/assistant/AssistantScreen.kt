@@ -57,8 +57,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.ui.components.EmptyState
+import com.novelai.assistant.ui.components.GlassSceneType
+import com.novelai.assistant.ui.components.GlassWidgetSize
 import com.novelai.assistant.ui.components.LargeTitleHeader
-import com.novelai.assistant.ui.components.liquidGlass
+import com.novelai.assistant.ui.components.LiquidGlassBox
 import dev.chrisbanes.haze.HazeState
 
 @Composable
@@ -253,26 +255,19 @@ fun AssistantScreen(
         val inputBottomPadding = if (isImeVisible) 8.dp else (70.dp + navBarBottom)
 
         // 浮动液态玻璃输入岛：与底部胶囊导航栏保持 14dp 边距和圆角曲率完全同构统一
-        Box(
+        LiquidGlassBox(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
-                .padding(bottom = inputBottomPadding + 4.dp)
-                .shadow(
-                    elevation = 10.dp,
-                    shape = RoundedCornerShape(26.dp),
-                    ambientColor = Color.Black.copy(alpha = 0.12f),
-                    spotColor = Color.Black.copy(alpha = 0.20f)
-                )
-                .liquidGlass(
-                    state = hazeState,
-                    shape = RoundedCornerShape(26.dp),
-                    blurRadius = 26.dp,
-                    
-                )
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .padding(bottom = inputBottomPadding + 4.dp),
+            state = hazeState,
+            cornerRadius = 26.dp,
+            widgetSize = GlassWidgetSize.SMALL,
+            sceneType = GlassSceneType.IMMERSIVE,
+            interactive = true,
+            shadowElevation = 10.dp
         ) {
-            Column {
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                 if (generating) {
                     LinearProgressIndicator(
                         modifier = Modifier

@@ -52,7 +52,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.novelai.assistant.ui.components.liquidGlass
+import com.novelai.assistant.ui.components.GlassSceneType
+import com.novelai.assistant.ui.components.GlassWidgetSize
+import com.novelai.assistant.ui.components.LiquidGlassBox
 import dev.chrisbanes.haze.HazeState
 import kotlin.math.roundToInt
 
@@ -119,22 +121,11 @@ fun ListeningFloatingCapsule(
                 label = "capsuleY"
             )
 
-            Box(
+            LiquidGlassBox(
                 modifier = Modifier
                     .offset { IntOffset(animatedX.roundToInt(), animatedY.roundToInt()) }
                     .width(capsuleWidthDp)
                     .height(capsuleHeightDp)
-                    .shadow(
-                        elevation = 10.dp,
-                        shape = RoundedCornerShape(25.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.18f),
-                        spotColor = Color.Black.copy(alpha = 0.28f)
-                    )
-                    .liquidGlass(
-                        state = hazeState,
-                        shape = RoundedCornerShape(25.dp),
-                        blurRadius = 28.dp
-                    )
                     .pointerInput(screenWidthPx, screenHeightPx) {
                         detectDragGestures(
                             onDrag = { change, dragAmount ->
@@ -159,7 +150,13 @@ fun ListeningFloatingCapsule(
                     .clickable {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         onOpenListening()
-                    }
+                    },
+                state = hazeState,
+                cornerRadius = 25.dp,
+                widgetSize = GlassWidgetSize.SMALL,
+                sceneType = GlassSceneType.IMMERSIVE,
+                interactive = true,
+                shadowElevation = 10.dp
             ) {
                 Row(
                     modifier = Modifier

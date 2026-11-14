@@ -2,25 +2,35 @@ package com.novelai.assistant.ui.novel
 
 import android.net.Uri
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.LibraryBooks
@@ -34,15 +44,27 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -58,8 +80,10 @@ import com.novelai.assistant.ui.assistant.AssistantScreen
 import com.novelai.assistant.ui.assistant.ReaderCompanionScreen
 import com.novelai.assistant.ui.bookshelf.BookshelfScreen
 import com.novelai.assistant.ui.components.AmbientBackdrop
+import com.novelai.assistant.ui.components.GlassSceneType
+import com.novelai.assistant.ui.components.GlassWidgetSize
+import com.novelai.assistant.ui.components.LiquidGlassBox
 import com.novelai.assistant.ui.components.glassSource
-import com.novelai.assistant.ui.components.liquidGlass
 import com.novelai.assistant.ui.components.rememberGlassState
 import com.novelai.assistant.ui.continuation.ContinuationScreen
 import com.novelai.assistant.ui.discover.discoverGraph
@@ -380,57 +404,238 @@ private fun GlassBottomBar(
 ) {
     val haptics = LocalHapticFeedback.current
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
-    Row(
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val destinations = TopLevelDestination.entries
+    val selectedIndex = destinations.indexOfFirst { currentRoute?.startsWith(it.route) == true }
+        .coerceAtLeast(0)
+
+    var isDragging by remember { mutableStateOf(false) }
+    var dragIndexFloat by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    var lastHapticIndex by remember { mutableIntStateOf(selectedIndex) }
+
+    LaunchedEffect(selectedIndex, isDragging) {
+        if (!isDragging) {
+            dragIndexFloat = selectedIndex.toFloat()
+            lastHapticIndex = selectedIndex
+        }
+    }
+
+    val animatedIndex by animateFloatAsState(
+        targetValue = if (isDragging) dragIndexFloat else selectedIndex.toFloat(),
+        animationSpec = if (isDragging) {
+            spring(dampingRatio = 0.85f, stiffness = 900f)
+        } else {
+            spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow)
+        },
+        label = "liquidPillIndex"
+    )
+    val pillScaleX by animateFloatAsState(
+        targetValue = if (isDragging) 1.08f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 420f),
+        label = "pillScaleX"
+    )
+    val pillScaleY by animateFloatAsState(
+        targetValue = if (isDragging) 1.14f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 420f),
+        label = "pillScaleY"
+    )
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            // 整体抬升到系统手势条之上，避免与系统小白条重叠、避免玻璃延伸进系统栏区域产生白块
             .padding(
-                start = 14.dp,
-                end = 14.dp,
+                start = 16.dp,
+                end = 16.dp,
                 top = 6.dp,
                 bottom = navBarPadding.calculateBottomPadding() + 8.dp
-            )
-            .shadow(
-                elevation = 12.dp,
-                shape = RoundedCornerShape(26.dp),
-                ambientColor = Color.Black.copy(alpha = 0.15f),
-                spotColor = Color.Black.copy(alpha = 0.25f)
-            )
-            .liquidGlass(
-                state = hazeState,
-                shape = RoundedCornerShape(26.dp),
-                blurRadius = 28.dp
             ),
-        verticalAlignment = Alignment.CenterVertically
+        contentAlignment = Alignment.Center
     ) {
-        TopLevelDestination.entries.forEach { dest ->
-            val selected = currentRoute?.startsWith(dest.route) == true
-            Column(
+        LiquidGlassBox(
+            modifier = Modifier
+                .widthIn(max = 380.dp)
+                .fillMaxWidth(),
+            state = hazeState,
+            cornerRadius = 32.dp,
+            widgetSize = GlassWidgetSize.SMALL,
+            sceneType = GlassSceneType.IMMERSIVE,
+            interactive = true,
+            shadowElevation = 14.dp
+        ) {
+            val density = LocalDensity.current
+            BoxWithConstraints(
                 modifier = Modifier
-                    .weight(1f)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onSelect(dest.route)
-                    }
-                    .padding(vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 5.dp)
             ) {
-                Icon(
-                    imageVector = dest.icon,
-                    contentDescription = dest.label,
-                    tint = if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                    modifier = Modifier.size(24.dp)
+                val totalWidthPx = with(density) { maxWidth.toPx() }
+                val count = destinations.size
+                val slotWidthDp = maxWidth / count
+                val slotWidthPx = (totalWidthPx / count).coerceAtLeast(1f)
+                val barHeightDp = 50.dp
+                val pillShape = RoundedCornerShape(26.dp)
+
+                val dragGestureModifier = Modifier.pointerInput(count, slotWidthPx, selectedIndex) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            val idx = (offset.x / slotWidthPx).coerceIn(0f, (count - 1).toFloat())
+                            dragIndexFloat = idx
+                            lastHapticIndex = idx.roundToInt().coerceIn(0, count - 1)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val next = (dragIndexFloat + dragAmount / slotWidthPx)
+                                .coerceIn(0f, (count - 1).toFloat())
+                            dragIndexFloat = next
+                            val hovered = next.roundToInt().coerceIn(0, count - 1)
+                            if (hovered != lastHapticIndex) {
+                                lastHapticIndex = hovered
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        },
+                        onDragEnd = {
+                            val targetIdx = dragIndexFloat.roundToInt().coerceIn(0, count - 1)
+                            isDragging = false
+                            if (targetIdx != selectedIndex) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onSelect(destinations[targetIdx].route)
+                            }
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                        }
+                    )
+                }
+
+                // 底层可流动液态水滴指示器（随拖动平滑滑动、物理放大并呈现晶体高光边缘）
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset((animatedIndex * slotWidthPx).roundToInt(), 0)
+                        }
+                        .width(slotWidthDp)
+                        .height(barHeightDp)
+                        .graphicsLayer {
+                            scaleX = pillScaleX
+                            scaleY = pillScaleY
+                        }
+                        .clip(pillShape)
+                        .background(
+                            brush = if (isDark) {
+                                Brush.verticalGradient(
+                                    colors = if (isDragging) {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.24f),
+                                            Color(0xFF8ECAFF).copy(alpha = 0.14f),
+                                            Color.White.copy(alpha = 0.10f)
+                                        )
+                                    } else {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.17f),
+                                            Color.White.copy(alpha = 0.09f)
+                                        )
+                                    }
+                                )
+                            } else {
+                                Brush.verticalGradient(
+                                    colors = if (isDragging) {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.85f),
+                                            Color(0xFFEAF4FF).copy(alpha = 0.62f)
+                                        )
+                                    } else {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.72f),
+                                            Color.White.copy(alpha = 0.52f)
+                                        )
+                                    }
+                                )
+                            },
+                            shape = pillShape
+                        )
+                        .border(
+                            width = if (isDragging) 1.dp else 0.7.dp,
+                            brush = if (isDark) {
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = if (isDragging) 0.55f else 0.30f),
+                                        Color(0xFF9AC8FF).copy(alpha = if (isDragging) 0.25f else 0.10f),
+                                        Color.White.copy(alpha = if (isDragging) 0.35f else 0.16f)
+                                    )
+                                )
+                            } else {
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.98f),
+                                        Color(0xFFAAD2FF).copy(alpha = if (isDragging) 0.55f else 0.25f),
+                                        Color.White.copy(alpha = 0.65f)
+                                    )
+                                )
+                            },
+                            shape = pillShape
+                        )
                 )
-                Text(
-                    text = dest.label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(barHeightDp)
+                        .then(dragGestureModifier),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val activeVisualIndex = if (isDragging) {
+                        dragIndexFloat.roundToInt().coerceIn(0, count - 1)
+                    } else {
+                        selectedIndex
+                    }
+
+                    destinations.forEachIndexed { index, dest ->
+                        val active = index == activeVisualIndex
+                        val itemScale by animateFloatAsState(
+                            targetValue = if (active && isDragging) 1.08f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.65f, stiffness = 450f),
+                            label = "tabScale_$index"
+                        )
+                        val contentColor = when {
+                            active && isDark -> Color(0xFF66B2FF)
+                            active -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(barHeightDp)
+                                .graphicsLayer {
+                                    scaleX = itemScale
+                                    scaleY = itemScale
+                                }
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSelect(dest.route)
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = dest.icon,
+                                contentDescription = dest.label,
+                                tint = contentColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                text = dest.label,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                color = contentColor
+                            )
+                        }
+                    }
+                }
             }
         }
     }
