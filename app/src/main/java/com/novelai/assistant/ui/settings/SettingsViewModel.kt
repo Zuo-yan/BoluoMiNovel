@@ -128,10 +128,9 @@ class SettingsViewModel @Inject constructor(
     fun setAppTheme(mode: AppThemeMode) {
         viewModelScope.launch {
             readingPreferencesRepository.setAppThemeMode(mode)
-            val cur = readingPreferencesRepository.current()
-            if (mode == AppThemeMode.DARK && (cur.bgTheme == ReaderBgTheme.WHITE || cur.bgTheme == ReaderBgTheme.SEPIA || cur.bgTheme == ReaderBgTheme.GREEN)) {
+            if (mode == AppThemeMode.DARK) {
                 readingPreferencesRepository.setBgTheme(ReaderBgTheme.DARK)
-            } else if (mode == AppThemeMode.LIGHT && (cur.bgTheme == ReaderBgTheme.DARK || cur.bgTheme == ReaderBgTheme.BLACK)) {
+            } else if (mode == AppThemeMode.LIGHT) {
                 readingPreferencesRepository.setBgTheme(ReaderBgTheme.WHITE)
             }
         }

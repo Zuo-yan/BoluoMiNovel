@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.novelai.assistant.data.db.BookEntity
 import com.novelai.assistant.data.db.BookSourceType
 import com.novelai.assistant.data.db.ChapterEntity
+import com.novelai.assistant.data.prefs.AppThemeMode
 import com.novelai.assistant.data.prefs.PageMode
 import com.novelai.assistant.data.prefs.ReaderBgTheme
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
@@ -487,20 +488,22 @@ class ReaderViewModel @Inject constructor(
     fun setHorizontalPadding(dp: Int) = launchPref { readingPreferencesRepository.setHorizontalPadding(dp) }
     fun setParagraphSpacing(dp: Int) = launchPref { readingPreferencesRepository.setParagraphSpacing(dp) }
     fun setPageMode(mode: PageMode) = launchPref { readingPreferencesRepository.setPageMode(mode) }
-    fun setBgTheme(theme: ReaderBgTheme) = launchPref { readingPreferencesRepository.setBgTheme(theme) }
+    fun setBgTheme(theme: ReaderBgTheme) = launchPref {
+        readingPreferencesRepository.setBgTheme(theme)
+        readingPreferencesRepository.setAppThemeMode(
+            if (theme == ReaderBgTheme.DARK) AppThemeMode.DARK else AppThemeMode.LIGHT
+        )
+    }
     fun setSerif(serif: Boolean) = launchPref { readingPreferencesRepository.setSerif(serif) }
 
-    private var lastLightTheme = ReaderBgTheme.WHITE
-
-    /** 夜间模式快捷切换：亮色 ↔ 暗夜（记住离开前的亮色主题） */
-    fun toggleNightMode() = launchPref {
-        val cur = readingPreferencesRepository.current().bgTheme
-        if (cur == ReaderBgTheme.DARK || cur == ReaderBgTheme.BLACK) {
-            readingPreferencesRepository.setBgTheme(lastLightTheme)
-        } else {
-            lastLightTheme = cur
-            readingPreferencesRepository.setBgTheme(ReaderBgTheme.DARK)
-        }
+    /** 夜间模式快捷切换：浅色 ↔ 深色，并同步应用全局外观 */
+    fun toggleNightMode(currentlyDark: Boolean? = null) = launchPref {
+        val isDarkNow = currentlyDark ?: (readingPreferencesRepository.current().bgTheme == ReaderBgTheme.DARK)
+        val nextBg = if (isDarkNow) ReaderBgTheme.WHITE else ReaderBgTheme.DARK
+        readingPreferencesRepository.setBgTheme(nextBg)
+        readingPreferencesRepository.setAppThemeMode(
+            if (nextBg == ReaderBgTheme.DARK) AppThemeMode.DARK else AppThemeMode.LIGHT
+        )
     }
 
     private fun launchPref(block: suspend () -> Unit) {

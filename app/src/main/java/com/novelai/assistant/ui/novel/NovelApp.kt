@@ -58,6 +58,7 @@ import androidx.navigation.navArgument
 import com.novelai.assistant.data.tts.ListeningNavBus
 import com.novelai.assistant.ui.assistant.AssistantScreen
 import com.novelai.assistant.ui.assistant.ReaderCompanionScreen
+import com.novelai.assistant.ui.components.NovelMotion
 import com.novelai.assistant.ui.bookshelf.BookshelfScreen
 import com.novelai.assistant.ui.components.AdaptiveNavigationType
 import com.novelai.assistant.ui.components.AmbientBackdrop
@@ -235,12 +236,12 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                 ) {
                     AnimatedVisibility(
                         visible = showNavRail,
-                        enter = fadeIn(tween(180)) + expandHorizontally(
-                            animationSpec = tween(220, easing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)),
+                        enter = NovelMotion.fadeEnter(200) + expandHorizontally(
+                            animationSpec = NovelMotion.expressiveSpring(),
                             expandFrom = Alignment.Start
                         ),
-                        exit = fadeOut(tween(140)) + shrinkHorizontally(
-                            animationSpec = tween(180),
+                        exit = NovelMotion.fadeExit(150) + shrinkHorizontally(
+                            animationSpec = NovelMotion.spatialSpring(),
                             shrinkTowards = Alignment.Start
                         )
                     ) {
@@ -276,17 +277,29 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                             .fillMaxHeight()
                             .glassSource(hazeState),
                         enterTransition = {
-                            if (targetState.destination.route in topLevelRoutes) fadeIn(tween(100))
-                            else slideInHorizontally(tween(220, easing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f))) { it / 5 } + fadeIn(tween(160))
+                            if (targetState.destination.route in topLevelRoutes) NovelMotion.topLevelEnter()
+                            else NovelMotion.pushEnter()
                         },
                         exitTransition = {
-                            fadeOut(tween(100))
+                            if (targetState.destination.route in topLevelRoutes && initialState.destination.route in topLevelRoutes) {
+                                NovelMotion.topLevelExit()
+                            } else {
+                                NovelMotion.pushExit()
+                            }
                         },
                         popEnterTransition = {
-                            fadeIn(tween(140))
+                            if (targetState.destination.route in topLevelRoutes && initialState.destination.route in topLevelRoutes) {
+                                NovelMotion.topLevelEnter()
+                            } else {
+                                NovelMotion.popEnter()
+                            }
                         },
                         popExitTransition = {
-                            slideOutHorizontally(tween(180)) { it / 5 } + fadeOut(tween(100))
+                            if (targetState.destination.route in topLevelRoutes && initialState.destination.route in topLevelRoutes) {
+                                NovelMotion.topLevelExit()
+                            } else {
+                                NovelMotion.popExit()
+                            }
                         }
                     ) {
                         composable(Routes.ONBOARDING) {
@@ -414,8 +427,8 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
             AnimatedVisibility(
                 visible = showBottomBar,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 2 },
-                exit = fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 2 }
+                enter = NovelMotion.fadeEnter(200) + slideInVertically(NovelMotion.expressiveSpring()) { it / 2 },
+                exit = NovelMotion.fadeExit(140) + slideOutVertically(NovelMotion.spatialSpring()) { it / 2 }
             ) {
                 val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
                 Box(

@@ -1,5 +1,11 @@
 package com.novelai.assistant.ui.settings
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -89,15 +95,12 @@ import com.novelai.assistant.ui.components.AdaptiveGlassDialog
 import com.novelai.assistant.ui.components.AdaptiveTwoPane
 import com.novelai.assistant.ui.components.GlassCapsuleButton
 import com.novelai.assistant.ui.components.GlassFilterPill
-import com.novelai.assistant.ui.components.GlassSceneType
 import com.novelai.assistant.ui.components.GlassSectionCard
-import com.novelai.assistant.ui.components.GlassWidgetSize
 import com.novelai.assistant.ui.components.HonorGlassDiagnostics
 import com.novelai.assistant.ui.components.LargeTitleHeader
-import com.novelai.assistant.ui.components.LiquidGlassBox
 import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
+import com.novelai.assistant.ui.components.NovelMotion
 import com.novelai.assistant.ui.components.SettingRow
-import com.novelai.assistant.ui.components.StatusDot
 import com.novelai.assistant.ui.components.adaptiveContentPadding
 import com.novelai.assistant.ui.components.bottomBarContentPadding
 import com.novelai.assistant.ui.theme.NovelColors
@@ -187,28 +190,38 @@ fun SettingsScreen(
                         )
                     },
                     secondaryPane = {
-                        val activeId = selectedProviderId
-                        if (activeId != null) {
-                            ProviderEditContent(
-                                providerId = activeId,
-                                onSaved = { savedId -> selectedProviderId = savedId },
-                                onDeleted = { selectedProviderId = null },
-                                showInlineHeader = true,
-                                onCloseInline = { selectedProviderId = null },
-                                loadForceKey = editNonce,
-                                contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
-                            )
-                        } else {
-                            SettingsOverviewDetailPane(
-                                providers = providers,
-                                continuationRoute = continuationRoute,
-                                companionRoute = companionRoute,
-                                appTheme = appTheme,
-                                onAddProvider = { openProvider("new") },
-                                onSelectProvider = openProvider,
-                                onConfigureRoute = { routeScene = it },
-                                contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
-                            )
+                        AnimatedContent(
+                            targetState = selectedProviderId to editNonce,
+                            transitionSpec = {
+                                (fadeIn(androidx.compose.animation.core.tween(210, easing = NovelMotion.fluidDecelerate)) +
+                                    scaleIn(initialScale = 0.985f, animationSpec = NovelMotion.spatialSpring())) togetherWith
+                                    (fadeOut(androidx.compose.animation.core.tween(130)) +
+                                        scaleOut(targetScale = 0.99f))
+                            },
+                            label = "settingsSecondaryPane"
+                        ) { (activeId, _) ->
+                            if (activeId != null) {
+                                ProviderEditContent(
+                                    providerId = activeId,
+                                    onSaved = { savedId -> selectedProviderId = savedId },
+                                    onDeleted = { selectedProviderId = null },
+                                    showInlineHeader = true,
+                                    onCloseInline = { selectedProviderId = null },
+                                    loadForceKey = editNonce,
+                                    contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
+                                )
+                            } else {
+                                SettingsOverviewDetailPane(
+                                    providers = providers,
+                                    continuationRoute = continuationRoute,
+                                    companionRoute = companionRoute,
+                                    appTheme = appTheme,
+                                    onAddProvider = { openProvider("new") },
+                                    onSelectProvider = openProvider,
+                                    onConfigureRoute = { routeScene = it },
+                                    contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
+                                )
+                            }
                         }
                     }
                 )
@@ -497,7 +510,7 @@ private fun SettingsListPane(
                     }
                     Column(Modifier.weight(1f)) {
                         Text("主题模式", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-                        Text("深色模式将同步联动阅读器暗夜底色", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("深色与浅色外观将与阅读器黑白底色双向同步", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 FlowRow(
@@ -616,7 +629,7 @@ private fun SettingsListPane(
 }
 
 /**
- * 平板双栏未选中特定提供商时右侧展示的：Honor Liquid Glass 实时视效预览 + AI 分流与快速配置工作台。
+ * 平板双栏未选中特定提供商时右侧展示的：AI 模型配置快捷概览与任务分流工作台。
  */
 @Composable
 private fun SettingsOverviewDetailPane(
@@ -642,78 +655,27 @@ private fun SettingsOverviewDetailPane(
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        // Honor Liquid Glass 引擎预览主卡
-        LiquidGlassBox(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 26.dp,
-            widgetSize = GlassWidgetSize.BIG,
-            sceneType = GlassSceneType.IMMERSIVE,
-            interactive = true,
-            shadowElevation = 10.dp
+        // AI 模型配置快捷入口卡
+        GlassSectionCard(
+            title = "模型配置工作台",
+            contentPadding = PaddingValues(20.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            "液态玻璃工作台",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = activeText
-                        )
-                    }
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.24f else 0.14f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            StatusDot(color = NovelColors.Mint)
-                            Text(
-                                text = when (appTheme) {
-                                    AppThemeMode.DARK -> "深色高对比"
-                                    AppThemeMode.LIGHT -> "浅色通透"
-                                    AppThemeMode.FOLLOW_SYSTEM -> if (isDark) "系统深色" else "系统浅色"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = activeText
-                            )
-                        }
-                    }
-                }
-
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "当前渲染路径：${HonorGlassDiagnostics.activeMode}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
+                    text = if (providers.isEmpty()) "尚未配置 AI 模型服务" else "已连接 $enabledCount / ${providers.size} 项模型服务",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     color = activeText
                 )
                 Text(
-                    text = HonorGlassDiagnostics.summary(),
+                    text = when (appTheme) {
+                        AppThemeMode.DARK -> "当前外观与阅读背景同步为深色模式"
+                        AppThemeMode.LIGHT -> "当前外观与阅读背景同步为浅色模式"
+                        AppThemeMode.FOLLOW_SYSTEM -> "当前外观与阅读背景跟随系统深浅色"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.padding(top = 4.dp)

@@ -40,16 +40,10 @@ data class ReaderPalette(
 
 object ReaderPalettes {
     val WHITE = ReaderPalette(0xFFF7F7FA, 0xFF1C1C22, 0xFF8A8A94, 0xFFFFFFFF, 0xFF1C1C22)
-    val SEPIA = ReaderPalette(0xFFF5ECD8, 0xFF4A4234, 0xFF9A8F7A, 0xFFEFE3C8, 0xFF4A4234)
-    val GREEN = ReaderPalette(0xFFCCE8CF, 0xFF2C3A2E, 0xFF6B8070, 0xFFBEE0C2, 0xFF2C3A2E)
-    val DARK = ReaderPalette(0xFF1B1B20, 0xFFC7C7CF, 0xFF77777F, 0xFF232329, 0xFFC7C7CF)
-    val BLACK = ReaderPalette(0xFF000000, 0xFF9A9AA2, 0xFF5A5A62, 0xFF121216, 0xFF9A9AA2)
+    val DARK = ReaderPalette(0xFF121216, 0xFFDCDCE6, 0xFF858594, 0xFF1B1C24, 0xFFF2F2F7)
 
     fun of(name: String): ReaderPalette = when (name) {
-        "SEPIA" -> SEPIA
-        "GREEN" -> GREEN
-        "DARK" -> DARK
-        "BLACK" -> BLACK
+        "DARK", "BLACK" -> DARK
         else -> WHITE
     }
 }

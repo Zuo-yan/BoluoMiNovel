@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ import com.novelai.assistant.data.prefs.ReadingSettings
 import com.novelai.assistant.data.tts.BatteryOptimizationHelper
 import com.novelai.assistant.ui.components.AdaptiveGlassSheet
 import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
+import com.novelai.assistant.ui.components.tactileScale
 import com.novelai.assistant.ui.theme.NovelColors
 import com.novelai.assistant.ui.theme.ReaderPalettes
 import java.util.Locale
@@ -245,25 +247,42 @@ internal fun ReaderSettingsSheet(
             SettingsGlassGroup(isDark = isDark) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("背景", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.width(64.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         ReaderBgTheme.entries.forEach { theme ->
                             val p = ReaderPalettes.of(theme.name)
                             val selected = settings.bgTheme == theme
-                            Box(
+                            val chipInteraction = remember { MutableInteractionSource() }
+                            val chipShape = RoundedCornerShape(14.dp)
+                            Row(
                                 Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(p.background), CircleShape)
+                                    .weight(1f)
+                                    .height(40.dp)
+                                    .tactileScale(chipInteraction, pressedScale = 0.94f)
+                                    .clip(chipShape)
+                                    .background(Color(p.background), chipShape)
                                     .border(
-                                        width = if (selected) 2.5.dp else 1.dp,
+                                        width = if (selected) 2.dp else 1.dp,
                                         color = if (selected) accent
-                                        else (if (isDark) Color(0xFF565666) else MaterialTheme.colorScheme.outline),
-                                        shape = CircleShape
+                                        else (if (isDark) Color(0xFF4A4A5A) else MaterialTheme.colorScheme.outline),
+                                        shape = chipShape
                                     )
-                                    .clickable { onBgThemeChange(theme) },
-                                contentAlignment = Alignment.Center
+                                    .clickable(
+                                        interactionSource = chipInteraction,
+                                        indication = androidx.compose.foundation.LocalIndication.current
+                                    ) { onBgThemeChange(theme) },
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("文", color = Color(p.text), style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    text = "Aa · ${theme.label}",
+                                    color = Color(p.text),
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                                    )
+                                )
                             }
                         }
                     }

@@ -72,6 +72,7 @@ import com.novelai.assistant.ui.components.GlassSceneType
 import com.novelai.assistant.ui.components.GlassWidgetSize
 import com.novelai.assistant.ui.components.LiquidGlassBox
 import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
+import com.novelai.assistant.ui.components.NovelMotion
 import com.novelai.assistant.ui.theme.NovelColors
 import com.novelai.assistant.ui.theme.ReaderPalette
 import dev.chrisbanes.haze.HazeState
@@ -122,8 +123,8 @@ internal fun BoxScope.ReaderTopBar(
 
     AnimatedVisibility(
         visible = visible,
-        enter = slideInVertically(spring(stiffness = 400f)) { -it } + fadeIn(),
-        exit = slideOutVertically(spring(stiffness = 400f)) { -it } + fadeOut(),
+        enter = slideInVertically(NovelMotion.expressiveSpring()) { -it } + NovelMotion.fadeEnter(180),
+        exit = slideOutVertically(NovelMotion.spatialSpring()) { -it } + NovelMotion.fadeExit(140),
         modifier = Modifier
             .align(Alignment.TopCenter)
             .padding(top = statusBarPad + 8.dp)
@@ -299,8 +300,8 @@ internal fun BoxScope.ReaderBottomBar(
     }
     AnimatedVisibility(
         visible = visible,
-        enter = slideInVertically(spring(stiffness = 400f)) { it } + fadeIn(),
-        exit = slideOutVertically(spring(stiffness = 400f)) { it } + fadeOut(),
+        enter = slideInVertically(NovelMotion.expressiveSpring()) { it } + NovelMotion.fadeEnter(180),
+        exit = slideOutVertically(NovelMotion.spatialSpring()) { it } + NovelMotion.fadeExit(140),
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .padding(bottom = (navBarPad + 12.dp).coerceAtLeast(16.dp))

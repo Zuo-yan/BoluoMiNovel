@@ -3,13 +3,18 @@ package com.novelai.assistant.ui.bookshelf
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,12 +82,15 @@ import com.novelai.assistant.ui.components.GlassCircleButton
 import com.novelai.assistant.ui.components.GlassFilterPill
 import com.novelai.assistant.ui.components.GlassSceneType
 import com.novelai.assistant.ui.components.GlassSearchCapsule
+import com.novelai.assistant.ui.components.GlassSectionCard
 import com.novelai.assistant.ui.components.GlassWidgetSize
 import com.novelai.assistant.ui.components.LargeTitleHeader
 import com.novelai.assistant.ui.components.LiquidGlassBox
 import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
+import com.novelai.assistant.ui.components.NovelMotion
 import com.novelai.assistant.ui.components.adaptiveContentPadding
 import com.novelai.assistant.ui.components.bottomBarContentPadding
+import com.novelai.assistant.ui.components.tactileScale
 import com.novelai.assistant.ui.theme.NovelColors
 import java.time.Instant
 import java.time.ZoneId
@@ -230,8 +238,8 @@ fun BookshelfScreen(
 
                 AnimatedVisibility(
                     visible = searchVisible,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
+                    enter = fadeIn() + expandVertically(NovelMotion.expressiveSpring()),
+                    exit = fadeOut() + shrinkVertically(NovelMotion.spatialSpring())
                 ) {
                     Box(
                         modifier = Modifier
@@ -281,100 +289,122 @@ fun BookshelfScreen(
 
                 Spacer(Modifier.height(4.dp))
 
-                if (displayedBooks.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = adaptive.horizontalPadding)
-                            .padding(bottom = bottomBarContentPadding(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            modifier = Modifier.widthIn(max = 420.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            if (searchQuery.isNotBlank() && books.isNotEmpty()) {
-                                EmptyState(
-                                    icon = Icons.Rounded.Search,
-                                    title = "未找到「$searchQuery」",
-                                    hint = "试试更换关键词，或清空搜索条件"
-                                )
-                                GlassCapsuleButton(
-                                    text = "清空搜索",
-                                    filled = false,
-                                    onClick = { searchQuery = "" }
-                                )
-                            } else {
-                                EmptyState(
-                                    icon = Icons.Rounded.UploadFile,
-                                    title = if (currentCategory == "全部") "书架空空如也" else "「$currentCategory」书单为空",
-                                    hint = if (currentCategory == "全部") {
-                                        "点击右上角导入 TXT / Markdown / EPUB\n或在「菠萝包」页打开与下载书籍"
-                                    } else {
-                                        "长按书籍可将其移动到此书单"
-                                    }
-                                )
-                                if (currentCategory == "全部") {
-                                    GlassCapsuleButton(
-                                        text = "导入本地书籍",
-                                        icon = Icons.Rounded.UploadFile,
-                                        filled = true,
-                                        onClick = { importLauncher.launch(arrayOf("*/*")) }
-                                    )
-                                } else {
-                                    TextButton(
-                                        onClick = { categoryToDelete = currentCategory }
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.DeleteOutline,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.error
+                val shelfContentState = when {
+                    displayedBooks.isEmpty() -> 0
+                    viewMode == ShelfViewMode.GRID -> 1
+                    else -> 2
+                }
+                AnimatedContent(
+                    targetState = shelfContentState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    transitionSpec = {
+                        (fadeIn(androidx.compose.animation.core.tween(210, easing = NovelMotion.fluidDecelerate)) +
+                            scaleIn(initialScale = 0.98f, animationSpec = NovelMotion.spatialSpring())) togetherWith
+                            (fadeOut(androidx.compose.animation.core.tween(140)) +
+                                scaleOut(targetScale = 0.985f))
+                    },
+                    label = "bookshelfContentMode"
+                ) { modeState ->
+                    when (modeState) {
+                        0 -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = adaptive.horizontalPadding)
+                                    .padding(bottom = bottomBarContentPadding(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    modifier = Modifier.widthIn(max = 420.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    if (searchQuery.isNotBlank() && books.isNotEmpty()) {
+                                        EmptyState(
+                                            icon = Icons.Rounded.Search,
+                                            title = "未找到「$searchQuery」",
+                                            hint = "试试更换关键词，或清空搜索条件"
                                         )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("删除此书单", color = MaterialTheme.colorScheme.error)
+                                        GlassCapsuleButton(
+                                            text = "清空搜索",
+                                            filled = false,
+                                            onClick = { searchQuery = "" }
+                                        )
+                                    } else {
+                                        EmptyState(
+                                            icon = Icons.Rounded.UploadFile,
+                                            title = if (currentCategory == "全部") "书架空空如也" else "「$currentCategory」书单为空",
+                                            hint = if (currentCategory == "全部") {
+                                                "点击右上角导入 TXT / Markdown / EPUB\n或在「菠萝包」页打开与下载书籍"
+                                            } else {
+                                                "长按书籍可将其移动到此书单"
+                                            }
+                                        )
+                                        if (currentCategory == "全部") {
+                                            GlassCapsuleButton(
+                                                text = "导入本地书籍",
+                                                icon = Icons.Rounded.UploadFile,
+                                                filled = true,
+                                                onClick = { importLauncher.launch(arrayOf("*/*")) }
+                                            )
+                                        } else {
+                                            TextButton(
+                                                onClick = { categoryToDelete = currentCategory }
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.DeleteOutline,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("删除此书单", color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                } else if (viewMode == ShelfViewMode.GRID) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = adaptive.bookshelfMinCardWidth),
-                        contentPadding = adaptiveContentPadding(top = 8.dp, bottomExtra = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(if (adaptive.isTablet) 18.dp else 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(if (adaptive.isTablet) 22.dp else 18.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        gridItems(displayedBooks, key = { it.id }) { book ->
-                            ShelfCard(
-                                book = book,
-                                onClick = { onOpenBook(book.id) },
-                                onLongPress = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    actionBook = book
+                        1 -> {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = adaptive.bookshelfMinCardWidth),
+                                contentPadding = adaptiveContentPadding(top = 8.dp, bottomExtra = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(if (adaptive.isTablet) 18.dp else 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(if (adaptive.isTablet) 22.dp else 18.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                gridItems(displayedBooks, key = { it.id }) { book ->
+                                    ShelfCard(
+                                        book = book,
+                                        modifier = Modifier.animateItem(placementSpec = NovelMotion.itemPlacementSpec),
+                                        onClick = { onOpenBook(book.id) },
+                                        onLongPress = {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            actionBook = book
+                                        }
+                                    )
                                 }
-                            )
+                            }
                         }
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(adaptive.listGridColumns),
-                        contentPadding = adaptiveContentPadding(top = 8.dp, bottomExtra = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        gridItems(displayedBooks, key = { it.id }) { book ->
-                            ShelfRow(
-                                book = book,
-                                onClick = { onOpenBook(book.id) },
-                                onLongPress = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    actionBook = book
+                        else -> {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(adaptive.listGridColumns),
+                                contentPadding = adaptiveContentPadding(top = 8.dp, bottomExtra = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                gridItems(displayedBooks, key = { it.id }) { book ->
+                                    ShelfRow(
+                                        book = book,
+                                        modifier = Modifier.animateItem(placementSpec = NovelMotion.itemPlacementSpec),
+                                        onClick = { onOpenBook(book.id) },
+                                        onLongPress = {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            actionBook = book
+                                        }
+                                    )
                                 }
-                            )
+                            }
                         }
                     }
                 }
@@ -473,7 +503,12 @@ fun BookshelfScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ShelfCard(book: BookEntity, onClick: () -> Unit, onLongPress: () -> Unit) {
+private fun ShelfCard(
+    book: BookEntity,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val titleColor = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
     val subtitleColor = if (isDark) {
@@ -481,12 +516,19 @@ private fun ShelfCard(book: BookEntity, onClick: () -> Unit, onLongPress: () -> 
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val interactionSource = remember { MutableInteractionSource() }
 
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
+            .tactileScale(interactionSource, pressedScale = 0.95f)
             .clip(RoundedCornerShape(18.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                onClick = onClick,
+                onLongClick = onLongPress
+            )
             .padding(bottom = 4.dp)
     ) {
         BookCover(
@@ -521,7 +563,12 @@ private fun ShelfCard(book: BookEntity, onClick: () -> Unit, onLongPress: () -> 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ShelfRow(book: BookEntity, onClick: () -> Unit, onLongPress: () -> Unit) {
+private fun ShelfRow(
+    book: BookEntity,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val primaryTextColor = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
     val secondaryTextColor = if (isDark) {
@@ -530,19 +577,20 @@ private fun ShelfRow(book: BookEntity, onClick: () -> Unit, onLongPress: () -> U
         MaterialTheme.colorScheme.onSurfaceVariant
     }
     val accentColor = if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
+    val interactionSource = remember { MutableInteractionSource() }
 
-    LiquidGlassBox(
-        modifier = Modifier
+    GlassSectionCard(
+        modifier = modifier
             .fillMaxWidth()
+            .tactileScale(interactionSource, pressedScale = 0.97f)
             .clip(RoundedCornerShape(20.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        cornerRadius = 20.dp,
-        widgetSize = GlassWidgetSize.BIG,
-        sceneType = GlassSceneType.GENERAL,
-        interactive = false,
-        skipRenderLayer = true,
-        shadowElevation = 6.dp,
-        borderWidth = 0.7.dp
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                onClick = onClick,
+                onLongClick = onLongPress
+            ),
+        cornerRadius = 20.dp
     ) {
         Row(
             modifier = Modifier

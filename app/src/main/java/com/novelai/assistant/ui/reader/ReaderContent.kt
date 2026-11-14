@@ -381,7 +381,7 @@ internal fun PagedContent(
                         },
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    if (isDualPage) {
+                    if (isDualPage && pages.size > 1) {
                         Row(
                             modifier = Modifier
                                 .width(spreadContainerWidthDp)
@@ -449,6 +449,29 @@ internal fun PagedContent(
                                 }
                             }
                         }
+                    } else if (isDualPage) {
+                        val dualSingleColWidthDp = (spreadContainerWidthDp - columnGutterDp) / 2
+                        ReaderPageColumn(
+                            page = leftPage,
+                            paragraphs = paragraphs,
+                            readerStyle = readerStyle,
+                            paragraphSpacingDp = settings.paragraphSpacingDp.dp,
+                            heightPx = heightPx,
+                            ttsSpeaking = ttsSpeaking,
+                            ttsPaused = ttsPaused,
+                            ttsPosition = ttsPosition,
+                            isDarkReader = isDarkReader,
+                            selectionMode = selectionMode,
+                            commentCounts = commentCounts,
+                            onQuote = onQuote,
+                            onOpenComments = onOpenComments,
+                            onTapAtRootX = { rootX -> handleTap(rootX - pageLeftX, pageWidthPx) },
+                            modifier = Modifier
+                                .width(dualSingleColWidthDp)
+                                .fillMaxHeight()
+                                .padding(horizontal = settings.horizontalPaddingDp.dp)
+                                .padding(top = statusBarPad + 72.dp, bottom = navBarPad + 64.dp)
+                        )
                     } else {
                         ReaderPageColumn(
                             page = leftPage,

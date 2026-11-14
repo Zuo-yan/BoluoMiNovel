@@ -570,7 +570,7 @@ private fun AssistantSidebarPane(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "${book.author.ifBlank { "未知作者" }} · 已读 ${(book.readingProgressPercent * 100).toInt()}%",
+                                text = "${book.author.ifBlank { "未知作者" }} · 已读 ${book.readingProgressPercent.toInt().coerceIn(0, 100)}%",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,

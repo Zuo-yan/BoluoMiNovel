@@ -19,7 +19,7 @@ import javax.inject.Singleton
 enum class PageMode { SCROLL, PAGED }
 
 enum class ReaderBgTheme(val label: String) {
-    WHITE("净白"), SEPIA("羊皮纸"), GREEN("护眼"), DARK("暗夜"), BLACK("纯黑")
+    WHITE("浅色"), DARK("深色")
 }
 
 enum class AppThemeMode { FOLLOW_SYSTEM, LIGHT, DARK }
@@ -117,7 +117,10 @@ class ReadingPreferencesRepository @Inject constructor(
             horizontalPaddingDp = p[Keys.hPadding] ?: 22,
             paragraphSpacingDp = p[Keys.paraSpacing] ?: 10,
             pageMode = p[Keys.pageMode]?.let { runCatching { PageMode.valueOf(it) }.getOrNull() } ?: PageMode.PAGED,
-            bgTheme = p[Keys.bgTheme]?.let { runCatching { ReaderBgTheme.valueOf(it) }.getOrNull() } ?: ReaderBgTheme.WHITE,
+            bgTheme = when (p[Keys.bgTheme]) {
+                "DARK", "BLACK" -> ReaderBgTheme.DARK
+                else -> ReaderBgTheme.WHITE
+            },
             serifFont = p[Keys.serif] ?: false,
             appThemeMode = p[Keys.appTheme]?.let { runCatching { AppThemeMode.valueOf(it) }.getOrNull() }
                 ?: AppThemeMode.FOLLOW_SYSTEM

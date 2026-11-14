@@ -15,8 +15,8 @@ android {
         applicationId = "com.novelai.assistant"
         minSdk = 26
         targetSdk = 36
-        versionCode = 53
-        versionName = "0.34.0"
+        versionCode = 54
+        versionName = "0.35.0"
     }
 
     buildTypes {
@@ -88,6 +88,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(libs.androidx.media)
+    implementation(libs.androidx.dynamicanimation)
     implementation(libs.haze)
     implementation(files("libs/hnvisualeffect-11.0.0.134.aar"))
     implementation(libs.jsoup)

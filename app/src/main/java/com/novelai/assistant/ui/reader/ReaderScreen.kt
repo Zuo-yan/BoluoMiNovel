@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,12 +50,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.db.BookSourceType
 import com.novelai.assistant.data.db.ChapterEntity
+import com.novelai.assistant.data.prefs.AppThemeMode
 import com.novelai.assistant.data.prefs.PageMode
 import com.novelai.assistant.data.prefs.ReaderBgTheme
 import com.novelai.assistant.data.sf.SfFailureKind
 import com.novelai.assistant.ui.components.AdaptiveSupportingPane
 import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
 import com.novelai.assistant.ui.components.LocalGlassHazeState
+import com.novelai.assistant.ui.components.NovelMotion
 import com.novelai.assistant.ui.components.glassSource
 import com.novelai.assistant.ui.components.rememberGlassState
 import com.novelai.assistant.ui.discover.SfBookToolsDialog
@@ -110,13 +113,20 @@ fun ReaderScreen(
     val activePosition = if (isCurrentBookSpeaking) ttsPosition else -1
     var timerSheetOpen by remember { mutableStateOf(false) }
 
-    val palette = ReaderPalettes.of(settings.bgTheme.name)
-    val bgColor = Color(palette.background)
-
-    val isReaderBgDark = settings.bgTheme == ReaderBgTheme.DARK || settings.bgTheme == ReaderBgTheme.BLACK
     val isThemeDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    // 弹窗与控制栏深浅色：阅读底色暗色时强制暗色，否则跟随应用主题（修复跟随系统与应用主题切换被覆盖问题）
-    val isEffectiveDark = isReaderBgDark || isThemeDark
+    val effectiveBgTheme = when (settings.appThemeMode) {
+        AppThemeMode.FOLLOW_SYSTEM -> if (isThemeDark) ReaderBgTheme.DARK else ReaderBgTheme.WHITE
+        AppThemeMode.DARK -> ReaderBgTheme.DARK
+        AppThemeMode.LIGHT -> ReaderBgTheme.WHITE
+    }
+    val palette = ReaderPalettes.of(effectiveBgTheme.name)
+    val bgColor by animateColorAsState(
+        targetValue = Color(palette.background),
+        animationSpec = NovelMotion.spatialSpring(),
+        label = "readerBgColor"
+    )
+
+    val isEffectiveDark = effectiveBgTheme == ReaderBgTheme.DARK
     val isDarkReader = isEffectiveDark
 
     // 控制栏文本与图标色：依据控制栏底层真实明度自适应（深色固定高对比度 #F2F2F7，浅色使用调色板暗墨色）
@@ -359,7 +369,7 @@ fun ReaderScreen(
                                 onOpenDetailOrToc = { onOpenDetail?.invoke(bookId) ?: viewModel.openToc() },
                                 onToggleNightMode = {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.toggleNightMode()
+                                    viewModel.toggleNightMode(isDarkReader)
                                 },
                                 onOpenSfTools = { sfToolsOpen = true },
                                 onToggleSelectionMode = {
@@ -581,7 +591,7 @@ fun ReaderScreen(
                 // ---------- 阅读设置（自适应玻璃弹窗 / 底板） ----------
                 if (settingsOpen) {
                     ReaderSettingsSheet(
-                        settings = settings,
+                        settings = settings.copy(bgTheme = effectiveBgTheme),
                         brightness = brightness,
                         isDark = isEffectiveDark,
                         timerMode = ttsTimerMode,

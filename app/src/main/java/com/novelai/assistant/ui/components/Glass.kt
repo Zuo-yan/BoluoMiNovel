@@ -734,14 +734,14 @@ half4 main(float2 fragCoord) {
     }
 
     float inward = -d;
-    float rimWidth = max(min(uLensHalfSize.x, uLensHalfSize.y) * 0.65, 1.0);
+    float rimWidth = max(min(uLensHalfSize.x, uLensHalfSize.y) * 0.72, 1.0);
     float edgeFactor = 1.0 - smoothstep(0.0, rimWidth, inward);
 
     float2 n = sdfNormal(p, uLensHalfSize, uCornerRadius);
-    float refractPx = (7.5 + 6.5 * uPressed) * uRefraction * pow(edgeFactor, 1.35);
-    float2 zoomOffset = p * (0.042 + 0.032 * uPressed);
+    float refractPx = (9.5 + 8.5 * uPressed) * uRefraction * pow(edgeFactor, 1.25);
+    float2 zoomOffset = p * (0.068 + 0.052 * uPressed);
     float2 baseUv = fragCoord - zoomOffset - n * refractPx;
-    float dispPx = (2.0 + 1.8 * uPressed) * uDispersion * edgeFactor;
+    float dispPx = (2.6 + 2.4 * uPressed) * uDispersion * edgeFactor;
 
     float2 maxCoord = max(uResolution - float2(0.5), float2(1.0));
     float2 uvR = clamp(baseUv - n * dispPx, float2(0.5), maxCoord);
@@ -753,27 +753,32 @@ half4 main(float2 fragCoord) {
     half4 cB = composable.eval(uvB);
     half4 refracted = half4(cR.r, cG.g, cB.b, cG.a);
 
-    float bodyAlpha = uIsDark > 0.5 ? (0.20 + 0.08 * uPressed) : (0.46 + 0.12 * uPressed);
-    half3 bodyColor = uIsDark > 0.5 ? half3(0.18, 0.21, 0.28) : half3(0.98, 0.99, 1.0);
-    float centerGlow = (1.0 - edgeFactor) * (0.10 + 0.06 * uPressed);
+    float verticalGrad = clamp(-p.y / max(uLensHalfSize.y, 1.0) * 0.5 + 0.5, 0.0, 1.0);
+    float bodyAlpha = uIsDark > 0.5 ? (0.30 + 0.10 * uPressed) : (0.58 + 0.12 * uPressed);
+    half3 darkTop = half3(0.26, 0.30, 0.38);
+    half3 darkBot = half3(0.14, 0.16, 0.22);
+    half3 bodyColor = uIsDark > 0.5 ? mix(darkBot, darkTop, verticalGrad) : half3(0.99, 0.995, 1.0);
+    float centerGlow = (1.0 - edgeFactor * 0.75) * (0.18 + 0.10 * uPressed);
     bodyColor = mix(bodyColor, half3(uTintColor.rgb), centerGlow);
 
-    // Src-over: refracted items OVER translucent glass body (premultiplied)
+    // Src-over: refracted items OVER convex liquid glass lens body (premultiplied)
     half3 overRgb = refracted.rgb + bodyColor * bodyAlpha * (1.0 - refracted.a);
     half overA = refracted.a + bodyAlpha * (1.0 - refracted.a);
 
-    // 235-degree directional Fresnel specular rim highlight
+    // 235-degree directional Fresnel specular rim + upper convex meniscus highlight
     float2 lightDir = normalize(float2(-0.57, -0.82));
     float dirSpec = clamp(dot(n, lightDir) * 0.5 + 0.5, 0.0, 1.0);
-    float rimMask = smoothstep(2.8, 0.0, inward);
-    float innerSheen = pow(edgeFactor, 2.2) * (0.22 + 0.22 * dirSpec);
+    float rimMask = smoothstep(3.2, 0.0, inward);
+    float topMeniscus = smoothstep(-uLensHalfSize.y, -uLensHalfSize.y * 0.25, p.y);
+    float meniscusArc = (1.0 - topMeniscus) * (1.0 - edgeFactor * 0.65) * 0.22;
+    float innerSheen = pow(edgeFactor, 1.85) * (0.28 + 0.28 * dirSpec);
     float specAlpha = clamp(
-        rimMask * (0.34 + 0.38 * dirSpec + 0.18 * uPressed) + innerSheen * 0.36,
+        rimMask * (0.44 + 0.44 * dirSpec + 0.18 * uPressed) + innerSheen * 0.44 + meniscusArc,
         0.0,
-        0.85
+        0.94
     );
-    half3 specColor = uIsDark > 0.5 ? half3(0.86, 0.93, 1.0) : half3(1.0, 1.0, 1.0);
-    float specWeight = uIsDark > 0.5 ? 0.62 : 0.82;
+    half3 specColor = uIsDark > 0.5 ? half3(0.88, 0.94, 1.0) : half3(1.0, 1.0, 1.0);
+    float specWeight = uIsDark > 0.5 ? 0.78 : 0.92;
 
     half3 finalRgb = overRgb + specColor * (specAlpha * specWeight) * (1.0 - overRgb);
     half finalA = clamp(overA + specAlpha * specWeight * (1.0 - overA), 0.0, 1.0);
@@ -967,8 +972,8 @@ fun LiquidGlassLensTrack(
                 lensShader.setFloatUniform("uCornerRadius", radiusPx)
                 lensShader.setFloatUniform("uIsDark", if (isDark) 1f else 0f)
                 lensShader.setFloatUniform("uPressed", pressedProgress)
-                lensShader.setFloatUniform("uRefraction", 0.30f)
-                lensShader.setFloatUniform("uDispersion", 0.10f)
+                lensShader.setFloatUniform("uRefraction", 0.90f + 0.50f * pressedProgress)
+                lensShader.setFloatUniform("uDispersion", 0.40f + 0.25f * pressedProgress)
                 lensShader.setFloatUniform("uTintColor", r, g, b, 1f)
                 renderEffect = RenderEffect
                     .createRuntimeShaderEffect(lensShader, "composable")
@@ -1093,16 +1098,48 @@ fun GlassSectionCard(
                 }
             }
         }
-        LiquidGlassBox(
-            modifier = Modifier.fillMaxWidth(),
-            state = state,
-            cornerRadius = cornerRadius,
-            widgetSize = GlassWidgetSize.BIG,
-            sceneType = GlassSceneType.GENERAL,
-            interactive = false,
-            skipRenderLayer = true,
-            shadowElevation = 6.dp,
-            borderWidth = 0.7.dp
+        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+        val cardShape = RoundedCornerShape(cornerRadius)
+        val cardBrush = if (isDark) {
+            Brush.verticalGradient(
+                listOf(
+                    Color(0xFF1F212B).copy(alpha = 0.86f),
+                    Color(0xFF15171F).copy(alpha = 0.82f)
+                )
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.94f),
+                    Color(0xFFFBFBFE).copy(alpha = 0.88f)
+                )
+            )
+        }
+        val borderBrush = Brush.verticalGradient(
+            if (isDark) {
+                listOf(
+                    Color.White.copy(alpha = 0.16f),
+                    Color.White.copy(alpha = 0.05f)
+                )
+            } else {
+                listOf(
+                    Color.White.copy(alpha = 0.96f),
+                    Color.Black.copy(alpha = 0.07f)
+                )
+            }
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(
+                    elevation = if (isDark) 3.dp else 6.dp,
+                    shape = cardShape,
+                    ambientColor = Color.Black.copy(alpha = if (isDark) 0.24f else 0.06f),
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.28f else 0.10f)
+                )
+                .clip(cardShape)
+                .background(cardBrush, cardShape)
+                .border(0.65.dp, borderBrush, cardShape)
         ) {
             Column(
                 modifier = Modifier
@@ -1139,13 +1176,19 @@ fun GlassSearchCapsule(
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val primaryTextColor = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
     val secondaryTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val interactionSource = remember { MutableInteractionSource() }
 
     LiquidGlassBox(
         modifier = modifier
             .height(46.dp)
+            .tactileScale(interactionSource, pressedScale = 0.985f)
             .then(
                 if (onClick != null && onQueryChange == null) {
-                    Modifier.clickable(onClick = onClick)
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = onClick
+                    )
                 } else {
                     Modifier
                 }
@@ -1153,9 +1196,9 @@ fun GlassSearchCapsule(
         state = state,
         cornerRadius = 23.dp,
         widgetSize = GlassWidgetSize.SMALL,
-        sceneType = GlassSceneType.GENERAL,
+        sceneType = GlassSceneType.IMMERSIVE,
         interactive = true,
-        shadowElevation = 8.dp
+        shadowElevation = 10.dp
     ) {
         Row(
             modifier = Modifier
@@ -1233,10 +1276,15 @@ fun GlassCircleButton(
     state: HazeState? = LocalGlassHazeState.current
 ) {
     val haptics = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
     LiquidGlassBox(
         modifier = modifier
             .size(size)
-            .clickable {
+            .tactileScale(interactionSource, pressedScale = 0.90f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onClick()
             },
@@ -1272,15 +1320,21 @@ fun GlassCapsuleButton(
     val haptics = LocalHapticFeedback.current
     val shape = RoundedCornerShape(percent = 50)
     val contentAlpha = if (enabled) 1f else 0.45f
+    val interactionSource = remember { MutableInteractionSource() }
     if (filled) {
         val bg = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.45f)
         val fg = MaterialTheme.colorScheme.onPrimary
         Row(
             modifier = modifier
                 .height(38.dp)
+                .tactileScale(interactionSource, pressedScale = 0.95f)
                 .clip(shape)
                 .background(bg)
-                .clickable(enabled = enabled) {
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    enabled = enabled
+                ) {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onClick()
                 }
@@ -1303,7 +1357,12 @@ fun GlassCapsuleButton(
         LiquidGlassBox(
             modifier = modifier
                 .height(38.dp)
-                .clickable(enabled = enabled) {
+                .tactileScale(interactionSource, pressedScale = 0.95f)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    enabled = enabled
+                ) {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onClick()
                 },
@@ -1311,9 +1370,9 @@ fun GlassCapsuleButton(
             cornerRadius = 19.dp,
             shape = shape,
             widgetSize = GlassWidgetSize.SMALL,
-            sceneType = GlassSceneType.GENERAL,
+            sceneType = GlassSceneType.IMMERSIVE,
             interactive = enabled,
-            shadowElevation = 4.dp,
+            shadowElevation = 6.dp,
             contentAlignment = Alignment.Center
         ) {
             Row(
@@ -1353,20 +1412,25 @@ fun GlassFilterPill(
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val haptics = LocalHapticFeedback.current
     val shape = RoundedCornerShape(percent = 50)
+    val interactionSource = remember { MutableInteractionSource() }
     val bg by animateColorAsState(
         targetValue = when {
             selected -> MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.28f else 0.16f)
             isDark -> Color.White.copy(alpha = 0.08f)
             else -> Color.White.copy(alpha = 0.72f)
         },
-        animationSpec = spring(stiffness = 480f),
+        animationSpec = NovelMotion.bouncySpring(),
         label = "filterPillBg"
     )
-    val borderColor = when {
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-        isDark -> Color.White.copy(alpha = 0.14f)
-        else -> Color.Black.copy(alpha = 0.08f)
-    }
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            isDark -> Color.White.copy(alpha = 0.14f)
+            else -> Color.Black.copy(alpha = 0.08f)
+        },
+        animationSpec = NovelMotion.spatialSpring(),
+        label = "filterPillBorder"
+    )
     val fgColor = if (selected) {
         if (isDark) NovelColors.GlassAccentBlueDark else MaterialTheme.colorScheme.primary
     } else {
@@ -1376,10 +1440,11 @@ fun GlassFilterPill(
     Row(
         modifier = modifier
             .height(34.dp)
+            .tactileScale(interactionSource, pressedScale = 0.93f)
             .clip(shape)
             .background(bg)
             .border(0.7.dp, borderColor, shape)
-            .clickable {
+            .clickable(interactionSource = interactionSource, indication = androidx.compose.foundation.LocalIndication.current) {
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onClick()
             }
