@@ -560,9 +560,13 @@ fun AmbientBackdrop(
     intensity: Float = 0.72f
 ) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val a1 = if (isDark) 0.14f else 0.12f
-    val a2 = if (isDark) 0.10f else 0.09f
-    val a3 = if (isDark) 0.14f else 0.12f
+    if (isDark) {
+        // 深色模式采用纯粹 OLED #000000 黑底，不绘制紫色环境光晕以确保黑色像素完全熄灭
+        return
+    }
+    val a1 = 0.12f
+    val a2 = 0.09f
+    val a3 = 0.12f
     Canvas(modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
@@ -603,7 +607,7 @@ fun Modifier.liquidGlass(
     val resolvedTint = tint?.let {
         if (it.alpha > 0.68f) it.copy(alpha = 0.58f) else it
     } ?: if (isDark) {
-        Color(0xFF171922).copy(alpha = 0.56f)
+        Color(0xFF141418).copy(alpha = 0.54f)
     } else {
         Color(0xFFF9FAFD).copy(alpha = 0.64f)
     }
@@ -612,7 +616,7 @@ fun Modifier.liquidGlass(
         Modifier.hazeEffect(
             state = state,
             style = HazeStyle(
-                backgroundColor = if (isDark) Color(0xFF0E1016) else Color(0xFFF4F6FA),
+                backgroundColor = if (isDark) Color(0xFF000000) else Color(0xFFF4F6FA),
                 tint = HazeTint(resolvedTint),
                 blurRadius = blurRadius,
                 noiseFactor = 0.015f
@@ -1377,8 +1381,8 @@ fun GlassCapsuleButton(
     val interactionSource = remember { MutableInteractionSource() }
     val insideOverlay = LocalInsideGlassOverlay.current
     if (filled) {
-        val bg = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.45f)
-        val fg = MaterialTheme.colorScheme.onPrimary
+        val bg = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.42f)
+        val fg = MaterialTheme.colorScheme.onPrimary.copy(alpha = if (enabled) 1f else 0.68f)
         Row(
             modifier = modifier
                 .height(38.dp)
@@ -1659,7 +1663,7 @@ fun GlassNavigationRail(
             .liquidGlass(
                 state = state,
                 tint = if (isDark) {
-                    Color(0xFF0A0C12).copy(alpha = 0.16f)
+                    Color(0xFF121216).copy(alpha = 0.22f)
                 } else {
                     Color.White.copy(alpha = 0.28f)
                 },
