@@ -134,4 +134,28 @@ object Paginator {
      * paragraph. Consumers skip blank paragraphs while rendering/speaking.
      */
     fun splitParagraphs(content: String): List<String> = ChapterTextParser.splitParagraphs(content)
+
+    /** 双栏书页排版：单栏可用宽度 = (总宽 - 左右边距*2 - 中缝间距) / 2 */
+    fun dualPageColumnWidthPx(totalWidthPx: Int, horizontalMarginPx: Int, columnGutterPx: Int): Int =
+        ((totalWidthPx - horizontalMarginPx * 2 - columnGutterPx) / 2).coerceAtLeast(0)
+
+    /** 双栏/单栏模式下的 Pager 总屏数（双栏每屏 2 页） */
+    fun spreadCount(totalPages: Int, dualPage: Boolean): Int {
+        val safeTotal = totalPages.coerceAtLeast(1)
+        return if (dualPage) (safeTotal + 1) / 2 else safeTotal
+    }
+
+    /** 逻辑页码映射为当前 Pager 索引 */
+    fun spreadIndexForPage(pageIndex: Int, dualPage: Boolean): Int {
+        val safePage = pageIndex.coerceAtLeast(0)
+        return if (dualPage) safePage / 2 else safePage
+    }
+
+    /** 双栏翻下一页时的左页索引（按 2 页步进并钳位到有效末页） */
+    fun nextDualPageIndex(currentLeftIndex: Int, totalPages: Int): Int =
+        (currentLeftIndex + 2).coerceAtMost((totalPages - 1).coerceAtLeast(0))
+
+    /** 双栏翻上一页时的左页索引（按 2 页回退并钳位到首页 0） */
+    fun prevDualPageIndex(currentLeftIndex: Int): Int =
+        (currentLeftIndex - 2).coerceAtLeast(0)
 }

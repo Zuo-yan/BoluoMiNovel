@@ -7,26 +7,30 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.HourglassBottom
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -50,10 +54,36 @@ import com.novelai.assistant.data.prefs.PageMode
 import com.novelai.assistant.data.prefs.ReaderBgTheme
 import com.novelai.assistant.data.prefs.ReadingSettings
 import com.novelai.assistant.data.tts.BatteryOptimizationHelper
+import com.novelai.assistant.ui.components.AdaptiveGlassSheet
+import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
 import com.novelai.assistant.ui.theme.NovelColors
 import com.novelai.assistant.ui.theme.ReaderPalettes
+import java.util.Locale
 
-/** 阅读设置面板内容 */
+@Composable
+private fun SettingsGlassGroup(
+    isDark: Boolean,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cardBg = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f)
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = cardBg,
+        border = BorderStroke(0.7.dp, cardBorder),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            content = content
+        )
+    }
+}
+
+/** 阅读设置面板（自适应玻璃弹窗 / 底板） */
 @Composable
 internal fun ReaderSettingsSheet(
     settings: ReadingSettings,
@@ -69,205 +99,256 @@ internal fun ReaderSettingsSheet(
     onBgThemeChange: (ReaderBgTheme) -> Unit,
     onSerifChange: (Boolean) -> Unit,
     onPageModeChange: (PageMode) -> Unit,
-    onOpenTimer: () -> Unit
+    onOpenTimer: () -> Unit,
+    onDismiss: () -> Unit
 ) {
+    val adaptive = LocalAdaptiveMetrics.current
+    val accent = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary
     val sliderColors = SliderDefaults.colors(
-        thumbColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-        activeTrackColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
+        thumbColor = accent,
+        activeTrackColor = accent,
         inactiveTrackColor = if (isDark) Color(0xFF2C2C3A) else MaterialTheme.colorScheme.surfaceVariant
     )
-    val labelColor = if (isDark) Color(0xFFE8E8EE) else MaterialTheme.colorScheme.onSurface
+    val labelColor = if (isDark) NovelColors.GlassOnDarkText else MaterialTheme.colorScheme.onSurface
+    val secondaryColor = if (isDark) Color(0xFFA8A8B6) else MaterialTheme.colorScheme.onSurfaceVariant
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    AdaptiveGlassSheet(
+        onDismissRequest = onDismiss,
+        maxWidth = adaptive.maxDialogSheetWidth,
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp)
     ) {
-        Text("阅读设置", style = MaterialTheme.typography.titleLarge, color = labelColor)
-
-        // 亮度
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("亮度", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = brightness,
-                onValueChange = { onBrightnessChange((it * 100).toInt() / 100f) },
-                valueRange = 0.05f..1f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                if (brightness >= 0.99f) "系统" else "${(brightness * 100).toInt()}%",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(44.dp),
-                textAlign = TextAlign.End
-            )
-        }
-
-        // 字号
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.FormatSize, contentDescription = null, tint = labelColor, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("字号", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(52.dp))
-            IconButton(onClick = { onFontSizeChange(settings.fontSizeSp - 1) }) {
-                Text("A-", style = MaterialTheme.typography.titleMedium, color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface)
-            }
-            Text(
-                "${settings.fontSizeSp}",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.width(40.dp),
-                textAlign = TextAlign.Center
-            )
-            IconButton(onClick = { onFontSizeChange(settings.fontSizeSp + 1) }) {
-                Text("A+", style = MaterialTheme.typography.titleMedium, color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface)
-            }
-        }
-
-        // 行距
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("行距", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = settings.lineSpacingMultiplier,
-                onValueChange = { onLineSpacingChange((it * 10).toInt() / 10f) },
-                valueRange = 1.2f..2.4f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // 边距
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("边距", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = settings.horizontalPaddingDp.toFloat(),
-                onValueChange = { onHorizontalPaddingChange(it.toInt()) },
-                valueRange = 8f..48f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // 段距
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("段距", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = settings.paragraphSpacingDp.toFloat(),
-                onValueChange = { onParagraphSpacingChange(it.toInt()) },
-                valueRange = 2f..28f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // 背景主题
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("背景", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ReaderBgTheme.entries.forEach { theme ->
-                    val p = ReaderPalettes.of(theme.name)
-                    val selected = settings.bgTheme == theme
-                    Box(
-                        Modifier
-                            .size(36.dp)
-                            .background(Color(p.background), CircleShape)
-                            .border(
-                                width = if (selected) 2.5.dp else 1.dp,
-                                color = if (selected) (if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary)
-                                else (if (isDark) Color(0xFF4A4A58) else MaterialTheme.colorScheme.outline),
-                                shape = CircleShape
-                            )
-                            .clickable { onBgThemeChange(theme) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("文", color = Color(p.text), style = MaterialTheme.typography.labelMedium)
-                    }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 620.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "阅读设置",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = labelColor,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = secondaryColor)
                 }
             }
-        }
 
-        // 衬线
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("衬线字体", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.weight(1f))
-            Switch(
-                checked = settings.serifFont,
-                onCheckedChange = onSerifChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                    uncheckedThumbColor = if (isDark) Color(0xFFA0A0AC) else Color.White,
-                    uncheckedTrackColor = if (isDark) Color(0xFF2C2C3A) else MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
-        }
+            // 亮度与字号/排版卡片
+            SettingsGlassGroup(isDark = isDark) {
+                // 亮度
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("亮度", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.width(64.dp))
+                    Slider(
+                        value = brightness,
+                        onValueChange = { onBrightnessChange((it * 100).toInt() / 100f) },
+                        valueRange = 0.05f..1f,
+                        colors = sliderColors,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        if (brightness >= 0.99f) "系统" else "${(brightness * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = secondaryColor,
+                        modifier = Modifier.width(44.dp),
+                        textAlign = TextAlign.End
+                    )
+                }
 
-        // 翻页模式
-        Text("翻页模式", style = MaterialTheme.typography.labelMedium, color = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = settings.pageMode == PageMode.SCROLL,
-                onClick = { onPageModeChange(PageMode.SCROLL) },
-                shape = SegmentedButtonDefaults.itemShape(0, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = if (isDark) NovelColors.Indigo.copy(alpha = 0.35f) else MaterialTheme.colorScheme.secondaryContainer,
-                    activeContentColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.onSecondaryContainer,
-                    inactiveContainerColor = if (isDark) Color(0xFF252532) else Color.Transparent,
-                    inactiveContentColor = if (isDark) Color(0xFFB0B0BC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    activeBorderColor = if (isDark) NovelColors.IndigoLight.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline,
-                    inactiveBorderColor = if (isDark) Color(0xFF383846) else MaterialTheme.colorScheme.outline
-                )
-            ) { Text("上下滚动") }
-            SegmentedButton(
-                selected = settings.pageMode == PageMode.PAGED,
-                onClick = { onPageModeChange(PageMode.PAGED) },
-                shape = SegmentedButtonDefaults.itemShape(1, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = if (isDark) NovelColors.Indigo.copy(alpha = 0.35f) else MaterialTheme.colorScheme.secondaryContainer,
-                    activeContentColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.onSecondaryContainer,
-                    inactiveContainerColor = if (isDark) Color(0xFF252532) else Color.Transparent,
-                    inactiveContentColor = if (isDark) Color(0xFFB0B0BC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    activeBorderColor = if (isDark) NovelColors.IndigoLight.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline,
-                    inactiveBorderColor = if (isDark) Color(0xFF383846) else MaterialTheme.colorScheme.outline
-                )
-            ) { Text("左右翻页") }
-        }
+                // 字号
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.FormatSize, contentDescription = null, tint = labelColor, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("字号", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.width(40.dp))
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { onFontSizeChange(settings.fontSizeSp - 1) }) {
+                        Text("A-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium, color = labelColor)
+                    }
+                    Text(
+                        "${settings.fontSizeSp}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accent,
+                        modifier = Modifier.width(40.dp),
+                        textAlign = TextAlign.Center
+                    )
+                    IconButton(onClick = { onFontSizeChange(settings.fontSizeSp + 1) }) {
+                        Text("A+", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium, color = labelColor)
+                    }
+                }
 
-        // 听书定时
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .clickable(onClick = onOpenTimer)
-                .padding(vertical = 4.dp)
-        ) {
-            Icon(Icons.Rounded.Timer, contentDescription = null, tint = labelColor, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("听书定时", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.weight(1f))
-            Text(
-                when {
-                    timerRemainingSeconds != null -> "倒计时 ${formatRemaining(timerRemainingSeconds)}"
-                    timerMode == TtsTimerMode.END_OF_CHAPTER -> "听完本章停止"
-                    else -> timerMode.label
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (timerMode != TtsTimerMode.OFF) (if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary)
-                else (if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
-            )
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                Icons.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
+                // 行距
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("行距", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.width(64.dp))
+                    Slider(
+                        value = settings.lineSpacingMultiplier,
+                        onValueChange = { onLineSpacingChange((it * 10).toInt() / 10f) },
+                        valueRange = 1.2f..2.4f,
+                        colors = sliderColors,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        String.format(Locale.getDefault(), "%.1f", settings.lineSpacingMultiplier),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = secondaryColor,
+                        modifier = Modifier.width(44.dp),
+                        textAlign = TextAlign.End
+                    )
+                }
+
+                // 边距
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("边距", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.width(64.dp))
+                    Slider(
+                        value = settings.horizontalPaddingDp.toFloat(),
+                        onValueChange = { onHorizontalPaddingChange(it.toInt()) },
+                        valueRange = 8f..48f,
+                        colors = sliderColors,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${settings.horizontalPaddingDp}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = secondaryColor,
+                        modifier = Modifier.width(44.dp),
+                        textAlign = TextAlign.End
+                    )
+                }
+
+                // 段距
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("段距", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.width(64.dp))
+                    Slider(
+                        value = settings.paragraphSpacingDp.toFloat(),
+                        onValueChange = { onParagraphSpacingChange(it.toInt()) },
+                        valueRange = 2f..28f,
+                        colors = sliderColors,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${settings.paragraphSpacingDp}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = secondaryColor,
+                        modifier = Modifier.width(44.dp),
+                        textAlign = TextAlign.End
+                    )
+                }
+            }
+
+            // 纸张主题 & 字体卡片
+            SettingsGlassGroup(isDark = isDark) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("背景", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.width(64.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ReaderBgTheme.entries.forEach { theme ->
+                            val p = ReaderPalettes.of(theme.name)
+                            val selected = settings.bgTheme == theme
+                            Box(
+                                Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(p.background), CircleShape)
+                                    .border(
+                                        width = if (selected) 2.5.dp else 1.dp,
+                                        color = if (selected) accent
+                                        else (if (isDark) Color(0xFF565666) else MaterialTheme.colorScheme.outline),
+                                        shape = CircleShape
+                                    )
+                                    .clickable { onBgThemeChange(theme) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("文", color = Color(p.text), style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("衬线字体", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = settings.serifFont,
+                        onCheckedChange = onSerifChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = accent,
+                            uncheckedThumbColor = if (isDark) Color(0xFFB5B5C2) else Color.White,
+                            uncheckedTrackColor = if (isDark) Color(0xFF2C2C3A) else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    )
+                }
+
+                Text("翻页模式", style = MaterialTheme.typography.labelMedium, color = secondaryColor)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = settings.pageMode == PageMode.SCROLL,
+                        onClick = { onPageModeChange(PageMode.SCROLL) },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = accent.copy(alpha = if (isDark) 0.28f else 0.16f),
+                            activeContentColor = if (isDark) NovelColors.GlassOnDarkText else MaterialTheme.colorScheme.primary,
+                            inactiveContainerColor = if (isDark) Color(0xFF232531) else Color.Transparent,
+                            inactiveContentColor = secondaryColor,
+                            activeBorderColor = accent.copy(alpha = 0.65f),
+                            inactiveBorderColor = if (isDark) Color(0xFF3A3C4C) else MaterialTheme.colorScheme.outline
+                        )
+                    ) { Text("上下滚动") }
+                    SegmentedButton(
+                        selected = settings.pageMode == PageMode.PAGED,
+                        onClick = { onPageModeChange(PageMode.PAGED) },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = accent.copy(alpha = if (isDark) 0.28f else 0.16f),
+                            activeContentColor = if (isDark) NovelColors.GlassOnDarkText else MaterialTheme.colorScheme.primary,
+                            inactiveContainerColor = if (isDark) Color(0xFF232531) else Color.Transparent,
+                            inactiveContentColor = secondaryColor,
+                            activeBorderColor = accent.copy(alpha = 0.65f),
+                            inactiveBorderColor = if (isDark) Color(0xFF3A3C4C) else MaterialTheme.colorScheme.outline
+                        )
+                    ) { Text("左右翻页") }
+                }
+            }
+
+            // 听书定时卡片
+            SettingsGlassGroup(isDark = isDark) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onOpenTimer)
+                        .padding(vertical = 4.dp)
+                ) {
+                    Icon(Icons.Rounded.Timer, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("听书定时", style = MaterialTheme.typography.bodyMedium, color = labelColor, modifier = Modifier.weight(1f))
+                    Text(
+                        when {
+                            timerRemainingSeconds != null -> "倒计时 ${formatRemaining(timerRemainingSeconds)}"
+                            timerMode == TtsTimerMode.END_OF_CHAPTER -> "听完本章停止"
+                            else -> timerMode.label
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (timerMode != TtsTimerMode.OFF) accent else secondaryColor
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        Icons.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = secondaryColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TtsTimerSheet(
     currentMode: TtsTimerMode,
@@ -276,29 +357,28 @@ internal fun TtsTimerSheet(
     onSelectMode: (TtsTimerMode) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val labelColor = if (isDark) Color(0xFFE8E8EE) else MaterialTheme.colorScheme.onSurface
+    val adaptive = LocalAdaptiveMetrics.current
+    val labelColor = if (isDark) NovelColors.GlassOnDarkText else MaterialTheme.colorScheme.onSurface
+    val secondaryColor = if (isDark) Color(0xFFA8A8B6) else MaterialTheme.colorScheme.onSurfaceVariant
     val accent = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary
+    val unselectedBg = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f)
+    val unselectedBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
 
-    ModalBottomSheet(
+    AdaptiveGlassSheet(
         onDismissRequest = onDismiss,
-        containerColor = if (isDark) Color(0xFF181820) else MaterialTheme.colorScheme.surfaceContainerLow,
-        contentColor = labelColor,
-        dragHandle = {
-            BottomSheetDefaults.DragHandle(
-                color = if (isDark) Color(0xFF5A5A66) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-        }
+        maxWidth = adaptive.maxDialogSheetWidth,
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp)
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 36.dp),
+                .heightIn(max = 580.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(bottom = 2.dp)
             ) {
                 Icon(
                     Icons.Rounded.Timer,
@@ -310,14 +390,20 @@ internal fun TtsTimerSheet(
                 Text(
                     "听书定时停止",
                     style = MaterialTheme.typography.titleLarge,
-                    color = labelColor
+                    fontWeight = FontWeight.SemiBold,
+                    color = labelColor,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = secondaryColor)
+                }
             }
 
             if (remainingSeconds != null && remainingSeconds > 0) {
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = accent.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(14.dp),
+                    color = accent.copy(alpha = if (isDark) 0.20f else 0.12f),
+                    border = BorderStroke(0.7.dp, accent.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -340,8 +426,9 @@ internal fun TtsTimerSheet(
                 }
             } else if (currentMode == TtsTimerMode.END_OF_CHAPTER) {
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = accent.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(14.dp),
+                    color = accent.copy(alpha = if (isDark) 0.20f else 0.12f),
+                    border = BorderStroke(0.7.dp, accent.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -367,23 +454,21 @@ internal fun TtsTimerSheet(
             Text(
                 "定时选项",
                 style = MaterialTheme.typography.labelMedium,
-                color = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant
+                color = secondaryColor
             )
 
             TtsTimerMode.entries.forEach { mode ->
                 val isSelected = mode == currentMode
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = if (isSelected) {
-                        if (isDark) Color(0xFF2B2B38) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                    } else {
-                        if (isDark) Color(0xFF22222C) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    },
-                    border = if (isSelected) {
-                        BorderStroke(1.dp, accent.copy(alpha = 0.8f))
-                    } else null,
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isSelected) accent.copy(alpha = if (isDark) 0.22f else 0.14f) else unselectedBg,
+                    border = BorderStroke(
+                        if (isSelected) 1.dp else 0.7.dp,
+                        if (isSelected) accent.copy(alpha = 0.75f) else unselectedBorder
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable {
                             onSelectMode(mode)
                             onDismiss()
@@ -396,6 +481,7 @@ internal fun TtsTimerSheet(
                         Text(
                             mode.label,
                             style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (isSelected) accent else labelColor,
                             modifier = Modifier.weight(1f)
                         )
@@ -415,10 +501,11 @@ internal fun TtsTimerSheet(
             val sheetContext = LocalContext.current
             val isIgnoringBattery = remember { BatteryOptimizationHelper.isIgnoringBatteryOptimizations(sheetContext) }
             if (!isIgnoringBattery) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = if (isDark) 0.42f else 0.55f),
+                    border = BorderStroke(0.7.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.35f)),
                     onClick = { BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(sheetContext) },
                     modifier = Modifier.fillMaxWidth()
                 ) {

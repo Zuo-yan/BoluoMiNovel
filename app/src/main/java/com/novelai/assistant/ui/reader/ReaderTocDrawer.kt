@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -24,18 +26,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -44,18 +46,28 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.novelai.assistant.data.db.ChapterEntity
+import com.novelai.assistant.ui.components.AdaptiveGlassDialog
+import com.novelai.assistant.ui.components.AdaptiveGlassSheet
+import com.novelai.assistant.ui.components.GlassSceneType
+import com.novelai.assistant.ui.components.GlassWidgetSize
+import com.novelai.assistant.ui.components.LiquidGlassBox
+import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
+import com.novelai.assistant.ui.components.LocalGlassHazeState
 import com.novelai.assistant.ui.components.OriginBadge
 import com.novelai.assistant.ui.components.SegmentedControl
 import com.novelai.assistant.ui.theme.NovelAITheme
 import com.novelai.assistant.ui.theme.NovelColors
 import com.novelai.assistant.ui.theme.ReaderPalette
 
+@Suppress("UNUSED_PARAMETER")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun BoxScope.ReaderTocDrawer(
@@ -76,6 +88,22 @@ internal fun BoxScope.ReaderTocDrawer(
     onSelectChapter: (ChapterEntity) -> Unit,
     onLongClickChapter: (ChapterEntity) -> Unit
 ) {
+    val adaptive = LocalAdaptiveMetrics.current
+    val isTwoPane = adaptive.twoPaneEnabled
+    val hazeState = LocalGlassHazeState.current
+    val primaryText = if (isEffectiveDark) NovelColors.GlassOnDarkText else Color(palette.text)
+    val secondaryText = if (isEffectiveDark) Color(0xFFA8A8B6) else Color(palette.secondaryText)
+    val drawerTint = if (isEffectiveDark) {
+        Color(0xFF14151E).copy(alpha = 0.80f)
+    } else {
+        Color(palette.chrome).copy(alpha = 0.84f)
+    }
+    val drawerShape = if (isTwoPane) {
+        RoundedCornerShape(28.dp)
+    } else {
+        RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
+    }
+
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(),
@@ -86,7 +114,7 @@ internal fun BoxScope.ReaderTocDrawer(
             Box(
                 Modifier
                     .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    .background(Color.Black.copy(alpha = if (isTwoPane) 0.16f else 0.35f))
                     .pointerInput(Unit) { detectTapGestures { onDismiss() } }
             )
             AnimatedVisibility(
@@ -95,47 +123,92 @@ internal fun BoxScope.ReaderTocDrawer(
                 exit = slideOutHorizontally { -it },
                 modifier = Modifier.align(Alignment.CenterStart)
             ) {
-                Surface(
-                    color = bgColor,
-                    contentColor = Color(palette.text),
-                    modifier = Modifier
+                val panelModifier = if (isTwoPane) {
+                    Modifier
+                        .fillMaxHeight()
+                        .padding(start = 16.dp, top = statusBarPad + 12.dp, bottom = navBarPad + 12.dp)
+                        .fillMaxWidth(0.36f)
+                        .widthIn(min = 320.dp, max = adaptive.tocDrawerMaxWidth)
+                } else {
+                    Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(0.84f)
+                        .widthIn(min = 320.dp, max = adaptive.tocDrawerMaxWidth)
+                }
+
+                LiquidGlassBox(
+                    modifier = panelModifier,
+                    state = hazeState,
+                    tint = drawerTint,
+                    shape = drawerShape,
+                    cornerRadius = 28.dp,
+                    widgetSize = GlassWidgetSize.BIG,
+                    sceneType = GlassSceneType.IMMERSIVE,
+                    interactive = false,
+                    skipRenderLayer = true,
+                    shadowElevation = 18.dp
                 ) {
-                    Column(Modifier.padding(top = statusBarPad + 8.dp)) {
-                        Text(
-                            "目录 · $totalChapters 章",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = if (isEffectiveDark) Color.White else Color(palette.text),
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                        )
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(top = if (isTwoPane) 14.dp else statusBarPad + 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 10.dp, top = 4.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "目录 · $totalChapters 章",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = primaryText,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "关闭目录",
+                                    tint = secondaryText
+                                )
+                            }
+                        }
                         SegmentedControl(
                             options = TocFilter.entries.toList(),
                             selected = tocFilter,
                             labelOf = { it.label },
                             onSelect = onSelectFilter,
-                            containerColor = if (isEffectiveDark) Color(0xFF22222E) else Color(palette.chrome).copy(alpha = 0.6f),
-                            activeColor = if (isEffectiveDark) Color(0xFF323242) else Color.White,
-                            selectedTextColor = if (isEffectiveDark) Color.White else Color(palette.text),
-                            unselectedTextColor = if (isEffectiveDark) Color(0xFFA0A0AC) else Color(palette.secondaryText),
+                            containerColor = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                            activeColor = if (isEffectiveDark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.90f),
+                            selectedTextColor = primaryText,
+                            unselectedTextColor = secondaryText,
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
-                        Spacer(Modifier.height(6.dp))
-                        LazyColumn(state = tocListState, modifier = Modifier.weight(1f)) {
+                        Spacer(Modifier.height(8.dp))
+                        LazyColumn(
+                            state = tocListState,
+                            contentPadding = PaddingValues(
+                                horizontal = 10.dp,
+                                vertical = 4.dp
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
                             itemsIndexed(tocItems, key = { _, item -> item.chapter.id }) { _, item ->
                                 val isCurrent = item.chapter.id == currentChapterId
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
                                         .background(
-                                            if (isCurrent) accent.copy(alpha = 0.16f)
+                                            if (isCurrent) accent.copy(alpha = 0.18f)
                                             else Color.Transparent
                                         )
                                         .combinedClickable(
                                             onClick = { onSelectChapter(item.chapter) },
                                             onLongClick = { onLongClickChapter(item.chapter) }
                                         )
-                                        .padding(horizontal = 20.dp, vertical = 11.dp)
+                                        .padding(horizontal = 12.dp, vertical = 11.dp)
                                         .padding(start = (item.depth * 16).dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -144,9 +217,8 @@ internal fun BoxScope.ReaderTocDrawer(
                                     Text(
                                         item.chapter.title,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = if (isCurrent) accent
-                                        else if (isEffectiveDark) Color(0xFFDCDCE4)
-                                        else Color(palette.text),
+                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (isCurrent) accent else primaryText,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f)
@@ -154,7 +226,11 @@ internal fun BoxScope.ReaderTocDrawer(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(navBarPad))
+                        if (!isTwoPane) {
+                            Spacer(Modifier.height(navBarPad))
+                        } else {
+                            Spacer(Modifier.height(10.dp))
+                        }
                     }
                 }
             }
@@ -162,7 +238,6 @@ internal fun BoxScope.ReaderTocDrawer(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ChapterActionSheet(
     chapter: ChapterEntity,
@@ -171,22 +246,20 @@ internal fun ChapterActionSheet(
     onRename: (ChapterEntity) -> Unit,
     onDelete: (ChapterEntity) -> Unit
 ) {
+    val adaptive = LocalAdaptiveMetrics.current
+    val primaryText = if (isEffectiveDark) NovelColors.GlassOnDarkText else MaterialTheme.colorScheme.onSurface
+    val cardBg = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.045f)
+    val cardBorder = if (isEffectiveDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.06f)
+    val deleteTint = if (isEffectiveDark) Color(0xFFFF6B81) else MaterialTheme.colorScheme.error
+
     NovelAITheme(darkTheme = isEffectiveDark) {
-        ModalBottomSheet(
+        AdaptiveGlassSheet(
             onDismissRequest = onDismiss,
-            containerColor = if (isEffectiveDark) Color(0xFF181820) else MaterialTheme.colorScheme.surfaceContainerLow,
-            contentColor = if (isEffectiveDark) Color(0xFFE8E8EE) else MaterialTheme.colorScheme.onSurface,
-            dragHandle = {
-                BottomSheetDefaults.DragHandle(
-                    color = if (isEffectiveDark) Color(0xFF5A5A66) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-            }
+            maxWidth = adaptive.maxDialogSheetWidth,
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp)
         ) {
             Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
+                Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
@@ -198,7 +271,8 @@ internal fun ChapterActionSheet(
                     Text(
                         chapter.title,
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        color = primaryText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -206,10 +280,12 @@ internal fun ChapterActionSheet(
                 }
 
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = if (isEffectiveDark) Color(0xFF252532) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = cardBg,
+                    border = BorderStroke(0.7.dp, cardBorder),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
                         .clickable { onRename(chapter) }
                 ) {
                     Row(
@@ -226,16 +302,18 @@ internal fun ChapterActionSheet(
                         Text(
                             "重命名章节",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface
+                            color = primaryText
                         )
                     }
                 }
 
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = if (isEffectiveDark) Color(0xFF361820) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isEffectiveDark) Color(0xFF3A1A24).copy(alpha = 0.72f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                    border = BorderStroke(0.7.dp, deleteTint.copy(alpha = 0.25f)),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
                         .clickable { onDelete(chapter) }
                 ) {
                     Row(
@@ -245,14 +323,14 @@ internal fun ChapterActionSheet(
                         Icon(
                             Icons.Rounded.Delete,
                             contentDescription = null,
-                            tint = if (isEffectiveDark) Color(0xFFFF6B81) else MaterialTheme.colorScheme.error,
+                            tint = deleteTint,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
                             "删除章节",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (isEffectiveDark) Color(0xFFFF6B81) else MaterialTheme.colorScheme.error
+                            color = deleteTint
                         )
                     }
                 }
@@ -269,49 +347,55 @@ internal fun RenameChapterDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val primaryText = if (isEffectiveDark) NovelColors.GlassOnDarkText else MaterialTheme.colorScheme.onSurface
+    val secondaryText = if (isEffectiveDark) Color(0xFFA8A8B6) else MaterialTheme.colorScheme.onSurfaceVariant
+    val accentColor = if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary
+
     NovelAITheme(darkTheme = isEffectiveDark) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            containerColor = if (isEffectiveDark) Color(0xFF20202A) else MaterialTheme.colorScheme.surfaceContainerHigh,
-            titleContentColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-            textContentColor = if (isEffectiveDark) Color(0xFFD0D0D8) else MaterialTheme.colorScheme.onSurfaceVariant,
-            title = { Text("重命名章节") },
-            text = {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    label = { Text("章节名称") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                        focusedBorderColor = if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = if (isEffectiveDark) Color(0xFF4A4A58) else MaterialTheme.colorScheme.outline,
-                        focusedLabelColor = if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                        unfocusedLabelColor = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
+        AdaptiveGlassDialog(onDismissRequest = onDismiss) {
+            Text(
+                "重命名章节",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = primaryText
+            )
+            Spacer(Modifier.height(14.dp))
+            OutlinedTextField(
+                value = draft,
+                onValueChange = onDraftChange,
+                label = { Text("章节名称") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = primaryText,
+                    unfocusedTextColor = primaryText,
+                    focusedBorderColor = accentColor,
+                    unfocusedBorderColor = if (isEffectiveDark) Color(0xFF4A4A58) else MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = accentColor,
+                    unfocusedLabelColor = secondaryText
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(18.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("取消", color = secondaryText)
+                }
+                Spacer(Modifier.width(8.dp))
                 TextButton(
                     onClick = onConfirm,
                     enabled = draft.isNotBlank()
                 ) {
                     Text(
                         "保存",
-                        color = if (draft.isNotBlank()) {
-                            if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary
-                        } else Color.Gray
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (draft.isNotBlank()) accentColor else secondaryText.copy(alpha = 0.45f)
                     )
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismiss) {
-                    Text("取消", color = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
             }
-        )
+        }
     }
 }
 
@@ -322,24 +406,37 @@ internal fun DeleteChapterConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val primaryText = if (isEffectiveDark) NovelColors.GlassOnDarkText else MaterialTheme.colorScheme.onSurface
+    val secondaryText = if (isEffectiveDark) Color(0xFFA8A8B6) else MaterialTheme.colorScheme.onSurfaceVariant
+    val errorColor = if (isEffectiveDark) Color(0xFFFF6B81) else MaterialTheme.colorScheme.error
+
     NovelAITheme(darkTheme = isEffectiveDark) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            containerColor = if (isEffectiveDark) Color(0xFF20202A) else MaterialTheme.colorScheme.surfaceContainerHigh,
-            titleContentColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-            textContentColor = if (isEffectiveDark) Color(0xFFD0D0D8) else MaterialTheme.colorScheme.onSurfaceVariant,
-            title = { Text("删除章节《$chapterTitle》？") },
-            text = { Text("该章节内容将被永久删除，此操作无法撤销。") },
-            confirmButton = {
-                TextButton(onClick = onConfirm) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
+        AdaptiveGlassDialog(onDismissRequest = onDismiss) {
+            Text(
+                "删除章节《$chapterTitle》？",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = primaryText
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "该章节内容将被永久删除，此操作无法撤销。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = secondaryText
+            )
+            Spacer(Modifier.height(18.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
                 TextButton(onClick = onDismiss) {
-                    Text("取消", color = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("取消", color = secondaryText)
+                }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onConfirm) {
+                    Text("删除", fontWeight = FontWeight.SemiBold, color = errorColor)
                 }
             }
-        )
+        }
     }
 }

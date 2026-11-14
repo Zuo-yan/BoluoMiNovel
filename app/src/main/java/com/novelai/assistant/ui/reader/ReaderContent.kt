@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -33,9 +36,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -43,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -53,6 +60,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.novelai.assistant.data.prefs.ReadingSettings
+import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
 import com.novelai.assistant.ui.theme.ReaderPalette
 import com.novelai.assistant.ui.theme.readerFontFamily
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -151,6 +159,7 @@ internal fun PagedContent(
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    val adaptive = LocalAdaptiveMetrics.current
 
     val readerStyle = TextStyle(
         fontSize = settings.fontSizeSp.sp,
@@ -160,40 +169,64 @@ internal fun PagedContent(
     )
     val hPadPx = with(density) { settings.horizontalPaddingDp.dp.roundToPx() }
     val paraSpacingPx = with(density) { settings.paragraphSpacingDp.dp.roundToPx() }
+    val markerReservePx = with(density) { 28.dp.roundToPx() }
+    val columnGutterDp = 40.dp
+    val columnGutterPx = with(density) { columnGutterDp.roundToPx() }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val widthPx = constraints.maxWidth - hPadPx * 2
+        // 横屏展开态平板（且可用画布宽度与长宽比充足时）启用双栏书页展开；否则回退为舒适单栏页宽
+        val isDualPage = adaptive.dualPageReaderEnabled &&
+            maxWidth >= 720.dp &&
+            maxWidth >= maxHeight * 1.1f
+
+        val singleContainerWidthDp = maxWidth.coerceAtMost(adaptive.maxReadableWidth)
+        val dualMaxSpreadDp = adaptive.maxReadableWidth * 2 + columnGutterDp + (settings.horizontalPaddingDp * 2).dp
+        val spreadContainerWidthDp = maxWidth.coerceAtMost(dualMaxSpreadDp)
+
+        val singleWidthPx = with(density) { singleContainerWidthDp.roundToPx() }.coerceAtMost(constraints.maxWidth)
+        val spreadWidthPx = with(density) { spreadContainerWidthDp.roundToPx() }.coerceAtMost(constraints.maxWidth)
+
+        val measureWidthPx = if (isDualPage) {
+            Paginator.dualPageColumnWidthPx(spreadWidthPx, hPadPx, columnGutterPx) - markerReservePx
+        } else {
+            singleWidthPx - hPadPx * 2 - markerReservePx
+        }
         val chromeTopPx = with(density) { (statusBarPad + 72.dp).roundToPx() }
         val chromeBottomPx = with(density) { (navBarPad + 64.dp).roundToPx() }
         val heightPx = constraints.maxHeight - chromeTopPx - chromeBottomPx
 
         val pages = remember(
             chapterId, paragraphs, settings.fontSizeSp, settings.lineSpacingMultiplier,
-            settings.serifFont, widthPx, heightPx, settings.paragraphSpacingDp
+            settings.serifFont, measureWidthPx, heightPx, settings.paragraphSpacingDp
         ) {
             Paginator.paginate(
                 paragraphs,
                 textMeasurer,
                 readerStyle,
-                widthPx - with(density) { 28.dp.roundToPx() },
+                measureWidthPx,
                 heightPx,
                 paraSpacingPx
             )
         }
 
-        val pagerState = rememberPagerState(pageCount = { pages.size })
+        val pagerCount = Paginator.spreadCount(pages.size, isDualPage)
+        val pagerState = rememberPagerState(pageCount = { pagerCount })
 
-        var positionReady by remember(chapterId, pages) { mutableStateOf(false) }
-        LaunchedEffect(chapterId, pages) {
+        var positionReady by remember(chapterId, pages, isDualPage) { mutableStateOf(false) }
+        LaunchedEffect(chapterId, pages, isDualPage) {
             val anchor = readPosition()
             val target = targetPageProvider()
             if (target == -1) {
-                pagerState.scrollToPage(pages.lastIndex.coerceAtLeast(0))
+                pagerState.scrollToPage((pagerCount - 1).coerceAtLeast(0))
             } else if (target != null && target >= 0) {
-                pagerState.scrollToPage(target.coerceIn(0, pages.lastIndex.coerceAtLeast(0)))
+                val targetSpread = Paginator.spreadIndexForPage(
+                    target.coerceIn(0, pages.lastIndex.coerceAtLeast(0)),
+                    isDualPage
+                )
+                pagerState.scrollToPage(targetSpread)
             } else {
                 val restored = Paginator.pageForAnchor(pages, anchor)
-                pagerState.scrollToPage(restored)
+                pagerState.scrollToPage(Paginator.spreadIndexForPage(restored, isDualPage))
             }
             positionReady = true
         }
@@ -205,23 +238,27 @@ internal fun PagedContent(
         }
 
         // 通知当前页起始段落（供听书从当前页起播）
-        LaunchedEffect(pagerState.currentPage, pages, positionReady) {
+        LaunchedEffect(pagerState.currentPage, pages, positionReady, isDualPage) {
             if (!positionReady) return@LaunchedEffect
-            pages.getOrNull(pagerState.currentPage)?.fragments?.firstOrNull()?.let {
+            val leftPageIndex = if (isDualPage) pagerState.currentPage * 2 else pagerState.currentPage
+            pages.getOrNull(leftPageIndex)?.fragments?.firstOrNull()?.let {
                 savePosition(ReadingAnchor(it.paraIndex, it.startOffset))
             }
-            val firstPara = pages.getOrNull(pagerState.currentPage)?.fragments?.firstOrNull()?.paraIndex ?: 0
+            val firstPara = pages.getOrNull(leftPageIndex)?.fragments?.firstOrNull()?.paraIndex ?: 0
             onVisibleParaChange(firstPara)
         }
 
-        // 听书进度驱动翻页
-        LaunchedEffect(ttsPosition, ttsSpeaking, ttsPaused) {
+        // 听书进度驱动翻页（双栏模式自动定位到包含目标段落的那一屏）
+        LaunchedEffect(ttsPosition, ttsSpeaking, ttsPaused, isDualPage, pages) {
             if ((ttsSpeaking || ttsPaused) && ttsPosition >= 0) {
                 val targetPage = pages.indexOfFirst { page ->
                     page.fragments.any { it.paraIndex == ttsPosition }
                 }
-                if (targetPage >= 0 && targetPage != pagerState.currentPage) {
-                    pagerState.animateScrollToPage(targetPage)
+                if (targetPage >= 0) {
+                    val targetSpread = Paginator.spreadIndexForPage(targetPage, isDualPage)
+                    if (targetSpread != pagerState.currentPage) {
+                        pagerState.animateScrollToPage(targetSpread)
+                    }
                 }
             }
         }
@@ -232,7 +269,7 @@ internal fun PagedContent(
             } else {
                 when {
                     screenX < screenWidth * 0.33f -> {
-                        // 左侧点击 -> 上一页 / 上一章
+                        // 左侧点击 -> 上一页（双栏退 2 页）/ 上一章
                         if (pagerState.currentPage > 0) {
                             scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
                         } else if (hasPrevChapter) {
@@ -242,8 +279,8 @@ internal fun PagedContent(
                         }
                     }
                     screenX > screenWidth * 0.67f -> {
-                        // 右侧点击 -> 下一页 / 下一章
-                        if (pagerState.currentPage < pages.lastIndex) {
+                        // 右侧点击 -> 下一页（双栏进 2 页）/ 下一章
+                        if (pagerState.currentPage < pagerCount - 1) {
                             scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
                         } else if (hasNextChapter) {
                             onNextChapter()
@@ -260,7 +297,7 @@ internal fun PagedContent(
         }
 
         val swipeModifier = if (selectionMode) Modifier else Modifier.pointerInput(
-            chapterId, pages.size, hasNextChapter, hasPrevChapter, pagerState.currentPage
+            chapterId, pagerCount, hasNextChapter, hasPrevChapter, pagerState.currentPage
         ) {
             awaitPointerEventScope {
                 while (true) {
@@ -268,7 +305,7 @@ internal fun PagedContent(
                     var totalDx = 0f
                     var totalDy = 0f
                     val pointerId = down.id
-                    val isAtEnd = pagerState.currentPage >= pages.lastIndex
+                    val isAtEnd = pagerState.currentPage >= pagerCount - 1
                     val isAtStart = pagerState.currentPage == 0
 
                     while (true) {
@@ -311,12 +348,22 @@ internal fun PagedContent(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
-            ) { pageIndex ->
-                val page = pages.getOrNull(pageIndex) ?: return@HorizontalPager
+            ) { spreadIndex ->
+                val leftIndex = if (isDualPage) spreadIndex * 2 else spreadIndex
+                val leftPage = pages.getOrNull(leftIndex) ?: return@HorizontalPager
+                val rightPage = if (isDualPage) pages.getOrNull(leftIndex + 1) else null
+
+                var pageLeftX by remember { mutableFloatStateOf(0f) }
+                var pageWidthPx by remember { mutableFloatStateOf(1f) }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pages.size, hasNextChapter, hasPrevChapter) {
+                        .onGloballyPositioned { coords ->
+                            pageLeftX = coords.positionInRoot().x
+                            pageWidthPx = coords.size.width.toFloat().coerceAtLeast(1f)
+                        }
+                        .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pagerCount, hasNextChapter, hasPrevChapter) {
                             detectTapGestures(
                                 onTap = { offset ->
                                     val screenX = offset.x
@@ -331,89 +378,200 @@ internal fun PagedContent(
                                     }
                                 }
                             )
-                        }
+                        },
+                    contentAlignment = Alignment.TopCenter
                 ) {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .padding(
-                                horizontal = settings.horizontalPaddingDp.dp,
-                                vertical = 0.dp
+                    if (isDualPage) {
+                        Row(
+                            modifier = Modifier
+                                .width(spreadContainerWidthDp)
+                                .fillMaxHeight()
+                                .padding(horizontal = settings.horizontalPaddingDp.dp)
+                                .padding(top = statusBarPad + 72.dp, bottom = navBarPad + 64.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            ReaderPageColumn(
+                                page = leftPage,
+                                paragraphs = paragraphs,
+                                readerStyle = readerStyle,
+                                paragraphSpacingDp = settings.paragraphSpacingDp.dp,
+                                heightPx = heightPx,
+                                ttsSpeaking = ttsSpeaking,
+                                ttsPaused = ttsPaused,
+                                ttsPosition = ttsPosition,
+                                isDarkReader = isDarkReader,
+                                selectionMode = selectionMode,
+                                commentCounts = commentCounts,
+                                onQuote = onQuote,
+                                onOpenComments = onOpenComments,
+                                onTapAtRootX = { rootX -> handleTap(rootX - pageLeftX, pageWidthPx) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
                             )
-                            .padding(top = statusBarPad + 72.dp, bottom = navBarPad + 64.dp)
-                    ) {
-                        var lastParaIndex = -1
-                        page.fragments.forEach { frag ->
-                            if (lastParaIndex != -1 && frag.paraIndex != lastParaIndex) {
-                                Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
+                            // 中缝脊线分隔（0.5.dp 微妙书脊线）
+                            Box(
+                                modifier = Modifier
+                                    .width(columnGutterDp)
+                                    .fillMaxHeight(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(0.5.dp)
+                                        .fillMaxHeight(0.92f)
+                                        .background(Color(palette.secondaryText).copy(alpha = 0.22f))
+                                )
                             }
-                            lastParaIndex = frag.paraIndex
-                            val highlightBg = ttsParagraphHighlightColor(
-                                isActive = ttsSpeaking || ttsPaused,
-                                isCurrentParagraph = frag.paraIndex == ttsPosition,
-                                isDarkReader = isDarkReader
-                            )
-
-                            val textModifier = if (selectionMode) {
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(highlightBg, MaterialTheme.shapes.small)
-                            } else {
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(highlightBg, MaterialTheme.shapes.small)
-                                    .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pages.size, hasNextChapter, hasPrevChapter) {
-                                        detectTapGestures(
-                                            onLongPress = { onQuote(paragraphs[frag.paraIndex], frag.paraIndex) },
-                                            onTap = { offset ->
-                                                val screenX = offset.x + with(density) { settings.horizontalPaddingDp.dp.toPx() }
-                                                val screenWidth = size.width + with(density) { (settings.horizontalPaddingDp * 2).dp.toPx() }
-                                                handleTap(screenX, screenWidth)
-                                            }
-                                        )
-                                    }
-                            }
-                            val markerCount = commentCounts[frag.paraIndex] ?: 0
-                            val illustration = ReaderIllustration.parse(frag.text)
-                            if (illustration != null) {
-                                Box(Modifier.fillMaxWidth().height(with(density) { heightPx.toDp() })) {
-                                    ReaderIllustrationView(illustration, Modifier.fillMaxSize().padding(end = 28.dp))
-                                    InlineTsukkomiMarker(
-                                        count = markerCount,
-                                        dark = isDarkReader,
-                                        onOpen = { onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex) },
-                                        modifier = Modifier.align(Alignment.TopEnd)
-                                    )
-                                }
-                            } else {
-                                Box(Modifier.fillMaxWidth()) {
-                                    Text(
-                                        text = frag.text,
-                                        style = readerStyle,
-                                        modifier = textModifier.padding(end = 28.dp)
-                                    )
-                                    InlineTsukkomiMarker(
-                                        count = markerCount,
-                                        dark = isDarkReader,
-                                        onOpen = { onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex) },
-                                        modifier = Modifier.align(Alignment.TopEnd)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            ) {
+                                if (rightPage != null) {
+                                    ReaderPageColumn(
+                                        page = rightPage,
+                                        paragraphs = paragraphs,
+                                        readerStyle = readerStyle,
+                                        paragraphSpacingDp = settings.paragraphSpacingDp.dp,
+                                        heightPx = heightPx,
+                                        ttsSpeaking = ttsSpeaking,
+                                        ttsPaused = ttsPaused,
+                                        ttsPosition = ttsPosition,
+                                        isDarkReader = isDarkReader,
+                                        selectionMode = selectionMode,
+                                        commentCounts = commentCounts,
+                                        onQuote = onQuote,
+                                        onOpenComments = onOpenComments,
+                                        onTapAtRootX = { rootX -> handleTap(rootX - pageLeftX, pageWidthPx) },
+                                        modifier = Modifier.fillMaxSize()
                                     )
                                 }
                             }
                         }
+                    } else {
+                        ReaderPageColumn(
+                            page = leftPage,
+                            paragraphs = paragraphs,
+                            readerStyle = readerStyle,
+                            paragraphSpacingDp = settings.paragraphSpacingDp.dp,
+                            heightPx = heightPx,
+                            ttsSpeaking = ttsSpeaking,
+                            ttsPaused = ttsPaused,
+                            ttsPosition = ttsPosition,
+                            isDarkReader = isDarkReader,
+                            selectionMode = selectionMode,
+                            commentCounts = commentCounts,
+                            onQuote = onQuote,
+                            onOpenComments = onOpenComments,
+                            onTapAtRootX = { rootX -> handleTap(rootX - pageLeftX, pageWidthPx) },
+                            modifier = Modifier
+                                .width(singleContainerWidthDp)
+                                .fillMaxHeight()
+                                .padding(horizontal = settings.horizontalPaddingDp.dp)
+                                .padding(top = statusBarPad + 72.dp, bottom = navBarPad + 64.dp)
+                        )
                     }
                 }
             }
 
-            // 页码
+            // 页码指示（双栏显示页码范围，例如 1-2 / 14）
+            val activeLeftIndex = if (isDualPage) pagerState.currentPage * 2 else pagerState.currentPage
+            val pageIndicator = if (isDualPage && activeLeftIndex + 1 < pages.size) {
+                "${activeLeftIndex + 1}-${activeLeftIndex + 2} / ${pages.size}"
+            } else {
+                "${(activeLeftIndex + 1).coerceAtMost(pages.size)} / ${pages.size}"
+            }
             Text(
-                "${pagerState.currentPage + 1} / ${pages.size}",
+                pageIndicator,
                 style = MaterialTheme.typography.labelMedium,
                 color = Color(palette.secondaryText),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = navBarPad + 40.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun ReaderPageColumn(
+    page: ReaderPage,
+    paragraphs: List<String>,
+    readerStyle: TextStyle,
+    paragraphSpacingDp: Dp,
+    heightPx: Int,
+    ttsSpeaking: Boolean,
+    ttsPaused: Boolean,
+    ttsPosition: Int,
+    isDarkReader: Boolean,
+    selectionMode: Boolean,
+    commentCounts: Map<Int, Int>,
+    onQuote: (String, Int) -> Unit,
+    onOpenComments: (String, Int) -> Unit,
+    onTapAtRootX: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val latestOnQuote by rememberUpdatedState(onQuote)
+    val latestOnTapAtRootX by rememberUpdatedState(onTapAtRootX)
+    Column(modifier = modifier) {
+        var lastParaIndex = -1
+        page.fragments.forEach { frag ->
+            if (lastParaIndex != -1 && frag.paraIndex != lastParaIndex) {
+                Spacer(Modifier.height(paragraphSpacingDp))
+            }
+            lastParaIndex = frag.paraIndex
+            val highlightBg = ttsParagraphHighlightColor(
+                isActive = ttsSpeaking || ttsPaused,
+                isCurrentParagraph = frag.paraIndex == ttsPosition,
+                isDarkReader = isDarkReader
+            )
+
+            var textLeftRootX by remember(frag.paraIndex, frag.startOffset) { mutableFloatStateOf(0f) }
+            val textModifier = if (selectionMode) {
+                Modifier
+                    .fillMaxWidth()
+                    .background(highlightBg, MaterialTheme.shapes.small)
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .background(highlightBg, MaterialTheme.shapes.small)
+                    .onGloballyPositioned { textLeftRootX = it.positionInRoot().x }
+                    .pointerInput(selectionMode, frag.paraIndex) {
+                        detectTapGestures(
+                            onLongPress = { latestOnQuote(paragraphs[frag.paraIndex], frag.paraIndex) },
+                            onTap = { offset -> latestOnTapAtRootX(textLeftRootX + offset.x) }
+                        )
+                    }
+            }
+            val markerCount = commentCounts[frag.paraIndex] ?: 0
+            val illustration = ReaderIllustration.parse(frag.text)
+            if (illustration != null) {
+                Box(Modifier.fillMaxWidth().height(with(density) { heightPx.toDp() })) {
+                    ReaderIllustrationView(illustration, Modifier.fillMaxSize().padding(end = 28.dp))
+                    InlineTsukkomiMarker(
+                        count = markerCount,
+                        dark = isDarkReader,
+                        onOpen = { onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex) },
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    )
+                }
+            } else {
+                Box(Modifier.fillMaxWidth()) {
+                    Text(
+                        text = frag.text,
+                        style = readerStyle,
+                        modifier = textModifier.padding(end = 28.dp)
+                    )
+                    InlineTsukkomiMarker(
+                        count = markerCount,
+                        dark = isDarkReader,
+                        onOpen = { onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex) },
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    )
+                }
+            }
         }
     }
 }
@@ -442,6 +600,7 @@ internal fun ScrollContent(
     selectionMode: Boolean
 ) {
     val listState = rememberLazyListState()
+    val adaptive = LocalAdaptiveMetrics.current
 
     LaunchedEffect(chapterId, paragraphs) {
         val anchor = readPosition()
@@ -469,6 +628,7 @@ internal fun ScrollContent(
 
     LazyColumn(
         state = listState,
+        horizontalAlignment = Alignment.CenterHorizontally,
         contentPadding = PaddingValues(
             start = settings.horizontalPaddingDp.dp,
             end = settings.horizontalPaddingDp.dp,
@@ -490,18 +650,24 @@ internal fun ScrollContent(
                 isDarkReader = isDarkReader
             )
 
-            ParagraphText(
-                text = para,
-                style = textStyle,
-                highlightBg = highlightBg,
-                selectionMode = selectionMode,
-                onTap = onToggleChrome,
-                onLongPress = { onQuote(para, index) },
-                commentCount = commentCounts[index] ?: 0,
-                dark = isDarkReader,
-                onOpenComments = { onOpenComments(para, index) }
-            )
-            Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
+            Column(
+                modifier = Modifier
+                    .widthIn(max = adaptive.maxReadableWidth)
+                    .fillMaxWidth()
+            ) {
+                ParagraphText(
+                    text = para,
+                    style = textStyle,
+                    highlightBg = highlightBg,
+                    selectionMode = selectionMode,
+                    onTap = onToggleChrome,
+                    onLongPress = { onQuote(para, index) },
+                    commentCount = commentCounts[index] ?: 0,
+                    dark = isDarkReader,
+                    onOpenComments = { onOpenComments(para, index) }
+                )
+                Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
+            }
         }
     }
 }

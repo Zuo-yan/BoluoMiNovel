@@ -20,14 +20,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,13 +52,16 @@ import com.novelai.assistant.data.db.ChapterEntity
 import com.novelai.assistant.data.prefs.PageMode
 import com.novelai.assistant.data.prefs.ReaderBgTheme
 import com.novelai.assistant.data.sf.SfFailureKind
+import com.novelai.assistant.ui.components.AdaptiveSupportingPane
+import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
+import com.novelai.assistant.ui.components.LocalGlassHazeState
 import com.novelai.assistant.ui.components.glassSource
 import com.novelai.assistant.ui.components.rememberGlassState
 import com.novelai.assistant.ui.discover.SfBookToolsDialog
 import com.novelai.assistant.ui.theme.NovelAITheme
+import com.novelai.assistant.ui.theme.NovelColors
 import com.novelai.assistant.ui.theme.ReaderPalettes
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     bookId: String,
@@ -118,9 +119,10 @@ fun ReaderScreen(
     val isEffectiveDark = isReaderBgDark || isThemeDark
     val isDarkReader = isEffectiveDark
 
-    // 控制栏文本与图标色：深色控制栏固定使用高对比度浅色文本，浅色控制栏使用调色板配置
-    val onChromeColor = if (isDarkReader) Color(0xFFF2F2F7) else Color(palette.onChrome)
-    val secondaryColor = if (isDarkReader) Color(0xFFA5A5B2) else Color(palette.secondaryText)
+    // 控制栏文本与图标色：依据控制栏底层真实明度自适应（深色固定高对比度 #F2F2F7，浅色使用调色板暗墨色）
+    val isChromeDark = isDarkReader || Color(palette.chrome).luminance() < 0.5f
+    val onChromeColor = if (isChromeDark) NovelColors.GlassOnDarkText else Color(palette.onChrome)
+    val secondaryColor = if (isChromeDark) Color(0xFFB0B0BE) else Color(palette.secondaryText)
     val haptics = LocalHapticFeedback.current
 
     var exportMarkdown by remember { mutableStateOf(true) }
@@ -228,325 +230,356 @@ fun ReaderScreen(
     val statusBarPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val readerHazeState = rememberGlassState()
-    val accent = if (isDarkReader) Color(0xFF9A97FF) else MaterialTheme.colorScheme.primary
+    val accent = if (isChromeDark) NovelColors.IndigoLight else NovelColors.Indigo
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(bgColor)
-    ) {
-        // ---------- 内容（标记为 Haze 实时背景采样源） ----------
-        Box(
-            Modifier
-                .fillMaxSize()
-                .glassSource(readerHazeState)
-        ) {
-            currentChapter?.takeIf { it.content.isNotBlank() }?.let { chapter ->
-                val paragraphs = remember(chapter.id, chapter.content) { Paginator.splitParagraphs(chapter.content) }
-                val content: @Composable () -> Unit = {
-                    if (settings.pageMode == PageMode.PAGED) {
-                        PagedContent(
-                            chapterId = chapter.id,
-                            readPosition = { viewModel.readPosition(chapter.id) },
-                            savePosition = { viewModel.savePosition(chapter.id, it) },
-                            paragraphs = paragraphs,
-                            settings = settings,
-                            palette = palette,
-                            statusBarPad = statusBarPad,
-                            navBarPad = navBarPad,
-                            chromeVisible = chromeVisible,
-                            ttsSpeaking = activeSpeaking,
-                            ttsPaused = activePaused,
-                            ttsPosition = activePosition,
-                            isDarkReader = isDarkReader,
-                            onToggleChrome = { viewModel.toggleChrome() },
-                            onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
-                            commentCounts = paragraphCommentCounts,
-                            onOpenComments = { text, idx ->
-                                viewModel.openParagraphComments(quote = text, row = idx)
-                            },
-                            onPageTurn = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                viewModel.scheduleProgressSave()
-                            },
-                            onVisibleParaChange = { currentVisibleParaIndex = it },
-                            onNextChapter = { viewModel.openNextChapter() },
-                            onPrevChapter = { viewModel.openPreviousChapter() },
-                            hasNextChapter = chapterIndex < chapters.lastIndex,
-                            hasPrevChapter = chapterIndex > 0,
-                            selectionMode = selectionMode,
-                            targetPageProvider = { viewModel.consumeTargetPage() }
-                        )
-                    } else {
-                        ScrollContent(
-                            chapterId = chapter.id,
-                            readPosition = { viewModel.readPosition(chapter.id) },
-                            savePosition = { viewModel.savePosition(chapter.id, it) },
-                            paragraphs = paragraphs,
-                            settings = settings,
-                            palette = palette,
-                            statusBarPad = statusBarPad,
-                            navBarPad = navBarPad,
-                            ttsSpeaking = activeSpeaking,
-                            ttsPaused = activePaused,
-                            ttsPosition = activePosition,
-                            isDarkReader = isDarkReader,
-                            onToggleChrome = { viewModel.toggleChrome() },
-                            onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
-                            commentCounts = paragraphCommentCounts,
-                            onOpenComments = { text, idx ->
-                                viewModel.openParagraphComments(quote = text, row = idx)
-                            },
-                            onProgress = { viewModel.scheduleProgressSave() },
-                            onVisibleParaChange = { currentVisibleParaIndex = it },
-                            selectionMode = selectionMode
-                        )
-                    }
-                }
-                if (selectionMode) {
-                    SelectionContainer(modifier = Modifier.fillMaxSize()) { content() }
-                } else {
-                    content()
-                }
-            } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (chapterError == null) {
-                        CircularProgressIndicator(color = Color(palette.text))
-                    } else {
-                        Text(chapterError.orEmpty(), color = Color(palette.text))
-                        TextButton(onClick = { viewModel.retryChapter() }) { Text("重新加载") }
-                        if (chapterFailureKind == SfFailureKind.AUTH) {
-                            Text("请返回菠萝包页登录账号", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
-                        } else if (chapterFailureKind == SfFailureKind.SIGNATURE) {
-                            Text("这不是账号封禁提示。请检查设备日期与时间，稍后重试。", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+    NovelAITheme(darkTheme = isEffectiveDark) {
+        CompositionLocalProvider(LocalGlassHazeState provides readerHazeState) {
+            val adaptive = LocalAdaptiveMetrics.current
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(bgColor)
+            ) {
+                AdaptiveSupportingPane(
+                    showSupporting = paragraphCommentsOpen,
+                    twoPaneEnabled = adaptive.twoPaneEnabled,
+                    supportingWidth = adaptive.supportingPaneWidth.coerceIn(380.dp, 420.dp),
+                    spacing = 0.dp,
+                    mainPane = {
+                        Box(Modifier.fillMaxSize()) {
+                            // ---------- 内容（标记为 Haze 实时背景采样源） ----------
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .glassSource(readerHazeState)
+                            ) {
+                                currentChapter?.takeIf { it.content.isNotBlank() }?.let { chapter ->
+                                    val paragraphs = remember(chapter.id, chapter.content) { Paginator.splitParagraphs(chapter.content) }
+                                    val content: @Composable () -> Unit = {
+                                        if (settings.pageMode == PageMode.PAGED) {
+                                            PagedContent(
+                                                chapterId = chapter.id,
+                                                readPosition = { viewModel.readPosition(chapter.id) },
+                                                savePosition = { viewModel.savePosition(chapter.id, it) },
+                                                paragraphs = paragraphs,
+                                                settings = settings,
+                                                palette = palette,
+                                                statusBarPad = statusBarPad,
+                                                navBarPad = navBarPad,
+                                                chromeVisible = chromeVisible,
+                                                ttsSpeaking = activeSpeaking,
+                                                ttsPaused = activePaused,
+                                                ttsPosition = activePosition,
+                                                isDarkReader = isDarkReader,
+                                                onToggleChrome = { viewModel.toggleChrome() },
+                                                onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
+                                                commentCounts = paragraphCommentCounts,
+                                                onOpenComments = { text, idx ->
+                                                    viewModel.openParagraphComments(quote = text, row = idx)
+                                                },
+                                                onPageTurn = {
+                                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    viewModel.scheduleProgressSave()
+                                                },
+                                                onVisibleParaChange = { currentVisibleParaIndex = it },
+                                                onNextChapter = { viewModel.openNextChapter() },
+                                                onPrevChapter = { viewModel.openPreviousChapter() },
+                                                hasNextChapter = chapterIndex < chapters.lastIndex,
+                                                hasPrevChapter = chapterIndex > 0,
+                                                selectionMode = selectionMode,
+                                                targetPageProvider = { viewModel.consumeTargetPage() }
+                                            )
+                                        } else {
+                                            ScrollContent(
+                                                chapterId = chapter.id,
+                                                readPosition = { viewModel.readPosition(chapter.id) },
+                                                savePosition = { viewModel.savePosition(chapter.id, it) },
+                                                paragraphs = paragraphs,
+                                                settings = settings,
+                                                palette = palette,
+                                                statusBarPad = statusBarPad,
+                                                navBarPad = navBarPad,
+                                                ttsSpeaking = activeSpeaking,
+                                                ttsPaused = activePaused,
+                                                ttsPosition = activePosition,
+                                                isDarkReader = isDarkReader,
+                                                onToggleChrome = { viewModel.toggleChrome() },
+                                                onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
+                                                commentCounts = paragraphCommentCounts,
+                                                onOpenComments = { text, idx ->
+                                                    viewModel.openParagraphComments(quote = text, row = idx)
+                                                },
+                                                onProgress = { viewModel.scheduleProgressSave() },
+                                                onVisibleParaChange = { currentVisibleParaIndex = it },
+                                                selectionMode = selectionMode
+                                            )
+                                        }
+                                    }
+                                    if (selectionMode) {
+                                        SelectionContainer(modifier = Modifier.fillMaxSize()) { content() }
+                                    } else {
+                                        content()
+                                    }
+                                } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        if (chapterError == null) {
+                                            CircularProgressIndicator(color = Color(palette.text))
+                                        } else {
+                                            Text(chapterError.orEmpty(), color = Color(palette.text))
+                                            TextButton(onClick = { viewModel.retryChapter() }) { Text("重新加载") }
+                                            if (chapterFailureKind == SfFailureKind.AUTH) {
+                                                Text("请返回菠萝包页登录账号", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                                            } else if (chapterFailureKind == SfFailureKind.SIGNATURE) {
+                                                Text("这不是账号封禁提示。请检查设备日期与时间，稍后重试。", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ---------- 顶栏（浮动液态玻璃岛） ----------
+                            ReaderTopBar(
+                                visible = chromeVisible && !tocOpen,
+                                statusBarPad = statusBarPad,
+                                hazeState = readerHazeState,
+                                isDarkReader = isDarkReader,
+                                palette = palette,
+                                onChromeColor = onChromeColor,
+                                secondaryColor = secondaryColor,
+                                accent = accent,
+                                bookTitle = book?.title ?: "",
+                                chapterTitle = currentChapter?.title ?: "",
+                                sourceType = book?.sourceType,
+                                hasChapterContent = currentChapter?.content?.isNotBlank() == true,
+                                chapterIndex = chapterIndex,
+                                totalChapters = chapters.size,
+                                selectionMode = selectionMode,
+                                onBack = onBack,
+                                onOpenDetailOrToc = { onOpenDetail?.invoke(bookId) ?: viewModel.openToc() },
+                                onToggleNightMode = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.toggleNightMode()
+                                },
+                                onOpenSfTools = { sfToolsOpen = true },
+                                onToggleSelectionMode = {
+                                    selectionMode = !selectionMode
+                                    if (selectionMode) viewModel.clearQuote()
+                                },
+                                onExportMarkdown = {
+                                    exportMarkdown = true
+                                    exportLauncher.launch("${currentChapter?.title ?: "chapter"}.md")
+                                },
+                                onExportTxt = {
+                                    exportMarkdown = false
+                                    exportLauncher.launch("${currentChapter?.title ?: "chapter"}.txt")
+                                }
+                            )
+
+                            // ---------- 底栏（浮动液态玻璃控制岛） ----------
+                            ReaderBottomBar(
+                                visible = chromeVisible && !tocOpen,
+                                navBarPad = navBarPad,
+                                hazeState = readerHazeState,
+                                isDarkReader = isDarkReader,
+                                palette = palette,
+                                onChromeColor = onChromeColor,
+                                secondaryColor = secondaryColor,
+                                accent = accent,
+                                isCurrentBookSpeaking = isCurrentBookSpeaking,
+                                activeSpeaking = activeSpeaking,
+                                activePaused = activePaused,
+                                activePosition = activePosition,
+                                ttsReady = ttsReady,
+                                ttsSpeed = ttsSpeed,
+                                ttsTimerMode = ttsTimerMode,
+                                ttsTimerRemainingSeconds = ttsTimerRemainingSeconds,
+                                onOpenTimer = { timerSheetOpen = true },
+                                onResumeTts = { viewModel.resumeTts() },
+                                onPauseTts = { viewModel.pauseTts() },
+                                onStopOrToggleTts = { viewModel.toggleTts() },
+                                onSetTtsSpeed = { viewModel.setTtsSpeed(it) },
+                                onOpenToc = { viewModel.openToc() },
+                                onPrevChapter = { if (chapterIndex > 0) viewModel.setChapterIndex(chapterIndex - 1) },
+                                onToggleTts = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    checkNotificationPermission()
+                                    viewModel.toggleTts(currentVisibleParaIndex)
+                                },
+                                onGenerate = {
+                                    currentChapter?.let { ch ->
+                                        onGenerate(viewModel.bookId, ch.id, "CONTINUATION")
+                                    }
+                                },
+                                onNextChapter = { if (chapterIndex < chapters.lastIndex) viewModel.setChapterIndex(chapterIndex + 1) },
+                                onOpenSettings = { viewModel.openSettings() }
+                            )
+
+                            // ---------- 划线即问（浮动液态玻璃胶囊） ----------
+                            val quoteBottomPadding = when {
+                                chromeVisible && (activeSpeaking || activePaused) -> navBarPad + 180.dp
+                                chromeVisible -> navBarPad + 104.dp
+                                activeSpeaking || activePaused -> navBarPad + 104.dp
+                                else -> navBarPad + 28.dp
+                            }
+                            ReaderQuoteBar(
+                                quotedText = quotedText,
+                                bottomPadding = quoteBottomPadding,
+                                hazeState = readerHazeState,
+                                isDarkReader = isDarkReader,
+                                isEffectiveDark = isEffectiveDark,
+                                palette = palette,
+                                accent = accent,
+                                isSfacgBook = book?.sourceType == BookSourceType.BOLUOBAO,
+                                onPlayFromHere = {
+                                    checkNotificationPermission()
+                                    viewModel.playFromQuotedParagraph()
+                                },
+                                onAskAction = { text, action ->
+                                    viewModel.clearQuote()
+                                    onAsk(viewModel.bookId, text, action)
+                                },
+                                onOpenComments = { quote ->
+                                    val row = viewModel.quotedParaIndex.value
+                                    viewModel.clearQuote()
+                                    viewModel.openParagraphComments(quote = quote, row = row)
+                                },
+                                onDismiss = { viewModel.clearQuote() }
+                            )
+
+                            // ---------- 文字选择模式底部提示浮岛 ----------
+                            ReaderSelectionHintBar(
+                                visible = selectionMode && quotedText == null,
+                                navBarPad = navBarPad,
+                                hazeState = readerHazeState,
+                                isDarkReader = isDarkReader,
+                                palette = palette,
+                                accent = accent,
+                                onExitSelectionMode = {
+                                    selectionMode = false
+                                    viewModel.clearQuote()
+                                }
+                            )
+
+                            // ---------- 目录抽屉 / 平板悬浮玻璃侧栏 ----------
+                            ReaderTocDrawer(
+                                visible = tocOpen,
+                                bgColor = bgColor,
+                                palette = palette,
+                                isEffectiveDark = isEffectiveDark,
+                                accent = accent,
+                                statusBarPad = statusBarPad,
+                                navBarPad = navBarPad,
+                                totalChapters = chapters.size,
+                                tocFilter = tocFilter,
+                                tocItems = tocItems,
+                                currentChapterId = currentChapter?.id,
+                                tocListState = tocListState,
+                                onDismiss = { viewModel.closeToc() },
+                                onSelectFilter = { viewModel.setTocFilter(it) },
+                                onSelectChapter = { ch ->
+                                    viewModel.setChapterIndex(ch.chapterIndex)
+                                    viewModel.closeToc()
+                                },
+                                onLongClickChapter = { ch ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    actionChapter = ch
+                                }
+                            )
                         }
-                    }
-                }
-            }
-        }
-
-        // ---------- 顶栏（浮动液态玻璃岛） ----------
-        ReaderTopBar(
-            visible = chromeVisible && !tocOpen,
-            statusBarPad = statusBarPad,
-            hazeState = readerHazeState,
-            isDarkReader = isDarkReader,
-            palette = palette,
-            onChromeColor = onChromeColor,
-            secondaryColor = secondaryColor,
-            accent = accent,
-            bookTitle = book?.title ?: "",
-            chapterTitle = currentChapter?.title ?: "",
-            sourceType = book?.sourceType,
-            hasChapterContent = currentChapter?.content?.isNotBlank() == true,
-            chapterIndex = chapterIndex,
-            totalChapters = chapters.size,
-            selectionMode = selectionMode,
-            onBack = onBack,
-            onOpenDetailOrToc = { onOpenDetail?.invoke(bookId) ?: viewModel.openToc() },
-            onToggleNightMode = {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                viewModel.toggleNightMode()
-            },
-            onOpenSfTools = { sfToolsOpen = true },
-            onToggleSelectionMode = {
-                selectionMode = !selectionMode
-                if (selectionMode) viewModel.clearQuote()
-            },
-            onExportMarkdown = {
-                exportMarkdown = true
-                exportLauncher.launch("${currentChapter?.title ?: "chapter"}.md")
-            },
-            onExportTxt = {
-                exportMarkdown = false
-                exportLauncher.launch("${currentChapter?.title ?: "chapter"}.txt")
-            }
-        )
-
-        // ---------- 底栏（浮动液态玻璃控制岛） ----------
-        ReaderBottomBar(
-            visible = chromeVisible && !tocOpen,
-            navBarPad = navBarPad,
-            hazeState = readerHazeState,
-            isDarkReader = isDarkReader,
-            palette = palette,
-            onChromeColor = onChromeColor,
-            secondaryColor = secondaryColor,
-            accent = accent,
-            isCurrentBookSpeaking = isCurrentBookSpeaking,
-            activeSpeaking = activeSpeaking,
-            activePaused = activePaused,
-            activePosition = activePosition,
-            ttsReady = ttsReady,
-            ttsSpeed = ttsSpeed,
-            ttsTimerMode = ttsTimerMode,
-            ttsTimerRemainingSeconds = ttsTimerRemainingSeconds,
-            onOpenTimer = { timerSheetOpen = true },
-            onResumeTts = { viewModel.resumeTts() },
-            onPauseTts = { viewModel.pauseTts() },
-            onStopOrToggleTts = { viewModel.toggleTts() },
-            onSetTtsSpeed = { viewModel.setTtsSpeed(it) },
-            onOpenToc = { viewModel.openToc() },
-            onPrevChapter = { if (chapterIndex > 0) viewModel.setChapterIndex(chapterIndex - 1) },
-            onToggleTts = {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                checkNotificationPermission()
-                viewModel.toggleTts(currentVisibleParaIndex)
-            },
-            onGenerate = {
-                currentChapter?.let { ch ->
-                    onGenerate(viewModel.bookId, ch.id, "CONTINUATION")
-                }
-            },
-            onNextChapter = { if (chapterIndex < chapters.lastIndex) viewModel.setChapterIndex(chapterIndex + 1) },
-            onOpenSettings = { viewModel.openSettings() }
-        )
-
-        // ---------- 划线即问（浮动液态玻璃胶囊） ----------
-        val quoteBottomPadding = when {
-            chromeVisible && (activeSpeaking || activePaused) -> navBarPad + 180.dp
-            chromeVisible -> navBarPad + 104.dp
-            activeSpeaking || activePaused -> navBarPad + 104.dp
-            else -> navBarPad + 28.dp
-        }
-        ReaderQuoteBar(
-            quotedText = quotedText,
-            bottomPadding = quoteBottomPadding,
-            hazeState = readerHazeState,
-            isDarkReader = isDarkReader,
-            isEffectiveDark = isEffectiveDark,
-            palette = palette,
-            accent = accent,
-            isSfacgBook = book?.sourceType == BookSourceType.BOLUOBAO,
-            onPlayFromHere = {
-                checkNotificationPermission()
-                viewModel.playFromQuotedParagraph()
-            },
-            onAskAction = { text, action ->
-                viewModel.clearQuote()
-                onAsk(viewModel.bookId, text, action)
-            },
-            onOpenComments = { quote ->
-                val row = viewModel.quotedParaIndex.value
-                viewModel.clearQuote()
-                viewModel.openParagraphComments(quote = quote, row = row)
-            },
-            onDismiss = { viewModel.clearQuote() }
-        )
-
-        // ---------- 文字选择模式底部提示浮岛 ----------
-        ReaderSelectionHintBar(
-            visible = selectionMode && quotedText == null,
-            navBarPad = navBarPad,
-            isDarkReader = isDarkReader,
-            onExitSelectionMode = {
-                selectionMode = false
-                viewModel.clearQuote()
-            }
-        )
-
-        if (paragraphCommentsOpen) {
-            ParagraphCommentsSheet(
-                comments = paragraphComments,
-                loading = paragraphCommentsLoading,
-                loadingMore = paragraphCommentsLoadingMore,
-                error = paragraphCommentsError,
-                sort = paragraphCommentsSort,
-                paragraph = paragraphCommentsQuote,
-                chapterTitle = currentChapter?.title.orEmpty(),
-                expandedReplies = expandedParagraphReplies,
-                replyThreads = replyThreads,
-                onRetryReplies = viewModel::loadReplies,
-                onSort = { viewModel.openParagraphComments(it) },
-                onLoadMore = { viewModel.loadMoreParagraphComments() },
-                onToggleReplies = { viewModel.toggleParagraphReplies(it) },
-                onRetry = { viewModel.openParagraphComments(quote = paragraphCommentsQuote) },
-                onDismiss = { viewModel.closeParagraphComments() }
-            )
-        }
-
-        // ---------- 目录抽屉 ----------
-        ReaderTocDrawer(
-            visible = tocOpen,
-            bgColor = bgColor,
-            palette = palette,
-            isEffectiveDark = isEffectiveDark,
-            accent = accent,
-            statusBarPad = statusBarPad,
-            navBarPad = navBarPad,
-            totalChapters = chapters.size,
-            tocFilter = tocFilter,
-            tocItems = tocItems,
-            currentChapterId = currentChapter?.id,
-            tocListState = tocListState,
-            onDismiss = { viewModel.closeToc() },
-            onSelectFilter = { viewModel.setTocFilter(it) },
-            onSelectChapter = { ch ->
-                viewModel.setChapterIndex(ch.chapterIndex)
-                viewModel.closeToc()
-            },
-            onLongClickChapter = { ch ->
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                actionChapter = ch
-            }
-        )
-
-        // ---------- 目录长按操作底板与弹窗 ----------
-        actionChapter?.let { ch ->
-            ChapterActionSheet(
-                chapter = ch,
-                isEffectiveDark = isEffectiveDark,
-                onDismiss = { actionChapter = null },
-                onRename = { target ->
-                    actionChapter = null
-                    renameChapterTarget = target
-                    renameTitleDraft = target.title
-                },
-                onDelete = { target ->
-                    actionChapter = null
-                    confirmDeleteChapter = target
-                }
-            )
-        }
-
-        renameChapterTarget?.let { target ->
-            RenameChapterDialog(
-                draft = renameTitleDraft,
-                isEffectiveDark = isEffectiveDark,
-                onDraftChange = { renameTitleDraft = it },
-                onConfirm = {
-                    viewModel.renameChapter(target.id, renameTitleDraft)
-                    renameChapterTarget = null
-                },
-                onDismiss = { renameChapterTarget = null }
-            )
-        }
-
-        confirmDeleteChapter?.let { target ->
-            DeleteChapterConfirmDialog(
-                chapterTitle = target.title,
-                isEffectiveDark = isEffectiveDark,
-                onConfirm = {
-                    viewModel.deleteChapter(target.id)
-                    confirmDeleteChapter = null
-                },
-                onDismiss = { confirmDeleteChapter = null }
-            )
-        }
-
-        // ---------- 阅读设置 ----------
-        if (settingsOpen) {
-            NovelAITheme(darkTheme = isEffectiveDark) {
-                ModalBottomSheet(
-                    onDismissRequest = { viewModel.closeSettings() },
-                    containerColor = if (isEffectiveDark) Color(0xFF181820) else MaterialTheme.colorScheme.surfaceContainerLow,
-                    contentColor = if (isEffectiveDark) Color(0xFFE8E8EE) else MaterialTheme.colorScheme.onSurface,
-                    dragHandle = {
-                        BottomSheetDefaults.DragHandle(
-                            color = if (isEffectiveDark) Color(0xFF5A5A66) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    },
+                    supportingPane = {
+                        ParagraphCommentsSupportingPane(
+                            comments = paragraphComments,
+                            loading = paragraphCommentsLoading,
+                            loadingMore = paragraphCommentsLoadingMore,
+                            error = paragraphCommentsError,
+                            sort = paragraphCommentsSort,
+                            paragraph = paragraphCommentsQuote,
+                            chapterTitle = currentChapter?.title.orEmpty(),
+                            expandedReplies = expandedParagraphReplies,
+                            replyThreads = replyThreads,
+                            isEffectiveDark = isEffectiveDark,
+                            palette = palette,
+                            statusBarPad = statusBarPad,
+                            navBarPad = navBarPad,
+                            onRetryReplies = viewModel::loadReplies,
+                            onSort = { viewModel.openParagraphComments(it) },
+                            onLoadMore = { viewModel.loadMoreParagraphComments() },
+                            onToggleReplies = { viewModel.toggleParagraphReplies(it) },
+                            onRetry = { viewModel.openParagraphComments(quote = paragraphCommentsQuote) },
+                            onDismiss = { viewModel.closeParagraphComments() }
                         )
                     }
-                ) {
+                )
+
+                // ---------- 紧凑/单栏模式间贴弹窗 ----------
+                if (paragraphCommentsOpen && !adaptive.twoPaneEnabled) {
+                    ParagraphCommentsSheet(
+                        comments = paragraphComments,
+                        loading = paragraphCommentsLoading,
+                        loadingMore = paragraphCommentsLoadingMore,
+                        error = paragraphCommentsError,
+                        sort = paragraphCommentsSort,
+                        paragraph = paragraphCommentsQuote,
+                        chapterTitle = currentChapter?.title.orEmpty(),
+                        expandedReplies = expandedParagraphReplies,
+                        replyThreads = replyThreads,
+                        isEffectiveDark = isEffectiveDark,
+                        onRetryReplies = viewModel::loadReplies,
+                        onSort = { viewModel.openParagraphComments(it) },
+                        onLoadMore = { viewModel.loadMoreParagraphComments() },
+                        onToggleReplies = { viewModel.toggleParagraphReplies(it) },
+                        onRetry = { viewModel.openParagraphComments(quote = paragraphCommentsQuote) },
+                        onDismiss = { viewModel.closeParagraphComments() }
+                    )
+                }
+
+                // ---------- 目录长按操作底板与弹窗 ----------
+                actionChapter?.let { ch ->
+                    ChapterActionSheet(
+                        chapter = ch,
+                        isEffectiveDark = isEffectiveDark,
+                        onDismiss = { actionChapter = null },
+                        onRename = { target ->
+                            actionChapter = null
+                            renameChapterTarget = target
+                            renameTitleDraft = target.title
+                        },
+                        onDelete = { target ->
+                            actionChapter = null
+                            confirmDeleteChapter = target
+                        }
+                    )
+                }
+
+                renameChapterTarget?.let { target ->
+                    RenameChapterDialog(
+                        draft = renameTitleDraft,
+                        isEffectiveDark = isEffectiveDark,
+                        onDraftChange = { renameTitleDraft = it },
+                        onConfirm = {
+                            viewModel.renameChapter(target.id, renameTitleDraft)
+                            renameChapterTarget = null
+                        },
+                        onDismiss = { renameChapterTarget = null }
+                    )
+                }
+
+                confirmDeleteChapter?.let { target ->
+                    DeleteChapterConfirmDialog(
+                        chapterTitle = target.title,
+                        isEffectiveDark = isEffectiveDark,
+                        onConfirm = {
+                            viewModel.deleteChapter(target.id)
+                            confirmDeleteChapter = null
+                        },
+                        onDismiss = { confirmDeleteChapter = null }
+                    )
+                }
+
+                // ---------- 阅读设置（自适应玻璃弹窗 / 底板） ----------
+                if (settingsOpen) {
                     ReaderSettingsSheet(
                         settings = settings,
                         brightness = brightness,
@@ -564,26 +597,25 @@ fun ReaderScreen(
                         onOpenTimer = {
                             viewModel.closeSettings()
                             timerSheetOpen = true
-                        }
+                        },
+                        onDismiss = { viewModel.closeSettings() }
                     )
                 }
-            }
-        }
 
-        if (sfToolsOpen) {
-            SfBookToolsDialog(bookId, chapterIndex.coerceAtLeast(0), { sfToolsOpen = false })
-        }
+                if (sfToolsOpen) {
+                    SfBookToolsDialog(bookId, chapterIndex.coerceAtLeast(0), { sfToolsOpen = false })
+                }
 
-        // ---------- 听书定时面板 ----------
-        if (timerSheetOpen) {
-            NovelAITheme(darkTheme = isEffectiveDark) {
-                TtsTimerSheet(
-                    currentMode = ttsTimerMode,
-                    remainingSeconds = ttsTimerRemainingSeconds,
-                    isDark = isEffectiveDark,
-                    onSelectMode = { viewModel.setTtsTimerMode(it) },
-                    onDismiss = { timerSheetOpen = false }
-                )
+                // ---------- 听书定时面板（自适应玻璃弹窗 / 底板） ----------
+                if (timerSheetOpen) {
+                    TtsTimerSheet(
+                        currentMode = ttsTimerMode,
+                        remainingSeconds = ttsTimerRemainingSeconds,
+                        isDark = isEffectiveDark,
+                        onSelectMode = { viewModel.setTtsTimerMode(it) },
+                        onDismiss = { timerSheetOpen = false }
+                    )
+                }
             }
         }
     }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -59,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -71,9 +71,13 @@ import com.novelai.assistant.data.db.BookSourceType
 import com.novelai.assistant.ui.components.GlassSceneType
 import com.novelai.assistant.ui.components.GlassWidgetSize
 import com.novelai.assistant.ui.components.LiquidGlassBox
+import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
+import com.novelai.assistant.ui.theme.NovelColors
 import com.novelai.assistant.ui.theme.ReaderPalette
 import dev.chrisbanes.haze.HazeState
 import java.util.Locale
+
+private val READER_CAPSULE_MAX_WIDTH = 680.dp
 
 internal fun formatRemaining(seconds: Int?): String {
     if (seconds == null || seconds <= 0) return ""
@@ -108,6 +112,13 @@ internal fun BoxScope.ReaderTopBar(
     onExportTxt: () -> Unit
 ) {
     var showExportMenu by remember { mutableStateOf(false) }
+    val adaptive = LocalAdaptiveMetrics.current
+    val capsuleTint = if (isDarkReader) {
+        Color(0xFF14141E).copy(alpha = 0.74f)
+    } else {
+        Color(palette.chrome).copy(alpha = 0.76f)
+    }
+    val menuBgColor = if (isDarkReader) Color(0xFF1E202C) else Color(palette.chrome)
 
     AnimatedVisibility(
         visible = visible,
@@ -115,14 +126,17 @@ internal fun BoxScope.ReaderTopBar(
         exit = slideOutVertically(spring(stiffness = 400f)) { -it } + fadeOut(),
         modifier = Modifier
             .align(Alignment.TopCenter)
-            .fillMaxWidth()
             .padding(top = statusBarPad + 8.dp)
             .padding(horizontal = 14.dp)
+            .then(
+                if (adaptive.isTablet) Modifier.widthIn(max = READER_CAPSULE_MAX_WIDTH) else Modifier
+            )
+            .fillMaxWidth()
     ) {
         LiquidGlassBox(
             modifier = Modifier.fillMaxWidth(),
             state = hazeState,
-            tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.86f),
+            tint = capsuleTint,
             cornerRadius = 26.dp,
             widgetSize = GlassWidgetSize.SMALL,
             sceneType = GlassSceneType.IMMERSIVE,
@@ -168,22 +182,36 @@ internal fun BoxScope.ReaderTopBar(
                         IconButton(onClick = { showExportMenu = true }) {
                             Icon(Icons.Rounded.MoreVert, contentDescription = "更多", tint = onChromeColor)
                         }
-                        DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                        DropdownMenu(
+                            expanded = showExportMenu,
+                            onDismissRequest = { showExportMenu = false },
+                            containerColor = menuBgColor
+                        ) {
                             if (sourceType == BookSourceType.BOLUOBAO) {
                                 DropdownMenuItem(
-                                    text = { Text("下载与导出（TXT / MD / EPUB）") },
+                                    text = { Text("下载与导出（TXT / MD / EPUB）", color = onChromeColor) },
                                     onClick = { showExportMenu = false; onOpenSfTools() }
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text(if (selectionMode) "关闭文字选择模式" else "文字选择模式（可复制）") },
+                                text = {
+                                    Text(
+                                        if (selectionMode) "关闭文字选择模式" else "文字选择模式（可复制）",
+                                        color = onChromeColor
+                                    )
+                                },
                                 onClick = {
                                     showExportMenu = false
                                     onToggleSelectionMode()
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("导出本章为 Markdown") },
+                                text = {
+                                    Text(
+                                        "导出本章为 Markdown",
+                                        color = if (hasChapterContent) onChromeColor else onChromeColor.copy(alpha = 0.42f)
+                                    )
+                                },
                                 enabled = hasChapterContent,
                                 onClick = {
                                     showExportMenu = false
@@ -191,7 +219,12 @@ internal fun BoxScope.ReaderTopBar(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("导出本章为 TXT") },
+                                text = {
+                                    Text(
+                                        "导出本章为 TXT",
+                                        color = if (hasChapterContent) onChromeColor else onChromeColor.copy(alpha = 0.42f)
+                                    )
+                                },
                                 enabled = hasChapterContent,
                                 onClick = {
                                     showExportMenu = false
@@ -258,20 +291,29 @@ internal fun BoxScope.ReaderBottomBar(
     onNextChapter: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    val adaptive = LocalAdaptiveMetrics.current
+    val capsuleTint = if (isDarkReader) {
+        Color(0xFF14141E).copy(alpha = 0.74f)
+    } else {
+        Color(palette.chrome).copy(alpha = 0.78f)
+    }
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(spring(stiffness = 400f)) { it } + fadeIn(),
         exit = slideOutVertically(spring(stiffness = 400f)) { it } + fadeOut(),
         modifier = Modifier
             .align(Alignment.BottomCenter)
-            .fillMaxWidth()
             .padding(bottom = (navBarPad + 12.dp).coerceAtLeast(16.dp))
             .padding(horizontal = 14.dp)
+            .then(
+                if (adaptive.isTablet) Modifier.widthIn(max = READER_CAPSULE_MAX_WIDTH) else Modifier
+            )
+            .fillMaxWidth()
     ) {
         LiquidGlassBox(
             modifier = Modifier.fillMaxWidth(),
             state = hazeState,
-            tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
+            tint = capsuleTint,
             cornerRadius = 26.dp,
             widgetSize = GlassWidgetSize.SMALL,
             sceneType = GlassSceneType.IMMERSIVE,
@@ -460,6 +502,18 @@ internal fun BoxScope.ReaderQuoteBar(
     onOpenComments: (quote: String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val adaptive = LocalAdaptiveMetrics.current
+    val isDark = isDarkReader || isEffectiveDark
+    val capsuleTint = if (isDark) {
+        Color(0xFF161622).copy(alpha = 0.76f)
+    } else {
+        Color(palette.chrome).copy(alpha = 0.80f)
+    }
+    val pinkAccent = if (isDark) Color(0xFFFF7A9E) else Color(0xFFD81B60)
+    val purpleAccent = if (isDark) Color(0xFFB39DDB) else Color(0xFF6200EA)
+    val primaryChipColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary
+    val secondaryChipColor = if (isDark) Color(0xFF8AC5D4) else MaterialTheme.colorScheme.secondary
+
     AnimatedVisibility(
         visible = quotedText != null,
         enter = slideInVertically(spring(stiffness = 380f)) { it } + fadeIn(),
@@ -471,41 +525,44 @@ internal fun BoxScope.ReaderQuoteBar(
                 start = 14.dp,
                 end = 14.dp
             )
+            .then(
+                if (adaptive.isTablet) Modifier.widthIn(max = READER_CAPSULE_MAX_WIDTH) else Modifier
+            )
     ) {
         LiquidGlassBox(
             state = hazeState,
-            tint = if (isDarkReader) Color(0xFF161622).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
+            tint = capsuleTint,
             cornerRadius = 24.dp,
             widgetSize = GlassWidgetSize.SMALL,
             sceneType = GlassSceneType.IMMERSIVE,
             shadowElevation = 12.dp
         ) {
             // 用 FlowRow + 定宽上限：横向滚动会让 Row 按不限宽测量，
-            // 外层 Surface 随之撑出屏幕，末尾的“本章间贴”被推到不可点区域。
+            // 外层容器随之撑出屏幕，末尾的“本章间贴”被推到不可点区域。
             FlowRow(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 6.dp),
-                maxItemsInEachRow = 3,
+                maxItemsInEachRow = if (adaptive.isTablet) 7 else 3,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                QuoteChip("从此处朗读", Icons.Rounded.PlayArrow, accent, onPlayFromHere)
-                QuoteChip("解析深意", Icons.Rounded.AutoAwesome, MaterialTheme.colorScheme.primary) {
+                QuoteChip("从此处朗读", Icons.Rounded.PlayArrow, accent, isDark, onPlayFromHere)
+                QuoteChip("解析深意", Icons.Rounded.AutoAwesome, primaryChipColor, isDark) {
                     onAskAction(quotedText ?: "", "解析深意")
                 }
-                QuoteChip("情绪总结", Icons.Rounded.Tune, MaterialTheme.colorScheme.secondary) {
+                QuoteChip("情绪总结", Icons.Rounded.Tune, secondaryChipColor, isDark) {
                     onAskAction(quotedText ?: "", "情绪总结")
                 }
-                QuoteChip("AI吐槽", Icons.Rounded.AutoAwesome, Color(0xFFE91E63)) {
+                QuoteChip("AI吐槽", Icons.Rounded.AutoAwesome, pinkAccent, isDark) {
                     onAskAction(quotedText ?: "", "AI吐槽")
                 }
                 if (isSfacgBook) {
-                    QuoteChip("本章间贴", Icons.Rounded.Forum, Color(0xFFE91E63)) {
+                    QuoteChip("本章间贴", Icons.Rounded.Forum, pinkAccent, isDark) {
                         onOpenComments(quotedText.orEmpty())
                     }
                 }
-                QuoteChip("选段伴读", Icons.Rounded.AutoAwesome, Color(0xFF7C4DFF)) {
+                QuoteChip("选段伴读", Icons.Rounded.AutoAwesome, purpleAccent, isDark) {
                     onAskAction(quotedText ?: "", "")
                 }
                 IconButton(
@@ -516,7 +573,7 @@ internal fun BoxScope.ReaderQuoteBar(
                         Icons.Rounded.Close,
                         contentDescription = "取消",
                         modifier = Modifier.size(16.dp),
-                        tint = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isDark) Color(0xFFB5B5C2) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -529,11 +586,13 @@ private fun QuoteChip(
     label: String,
     icon: ImageVector? = null,
     color: Color,
+    isDark: Boolean = false,
     onClick: () -> Unit
 ) {
     Surface(
         shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
+        color = color.copy(alpha = if (isDark) 0.20f else 0.12f),
+        border = BorderStroke(0.6.dp, color.copy(alpha = if (isDark) 0.35f else 0.22f)),
         onClick = onClick
     ) {
         Row(
@@ -559,9 +618,20 @@ private fun QuoteChip(
 internal fun BoxScope.ReaderSelectionHintBar(
     visible: Boolean,
     navBarPad: Dp,
+    hazeState: HazeState,
     isDarkReader: Boolean,
+    palette: ReaderPalette,
+    accent: Color,
     onExitSelectionMode: () -> Unit
 ) {
+    val adaptive = LocalAdaptiveMetrics.current
+    val textColor = if (isDarkReader) NovelColors.GlassOnDarkText else Color(palette.onChrome)
+    val capsuleTint = if (isDarkReader) {
+        Color(0xFF14141E).copy(alpha = 0.78f)
+    } else {
+        Color(palette.chrome).copy(alpha = 0.82f)
+    }
+
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(spring(stiffness = 380f)) { it } + fadeIn(),
@@ -569,32 +639,40 @@ internal fun BoxScope.ReaderSelectionHintBar(
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .padding(bottom = (navBarPad + 16.dp).coerceAtLeast(20.dp), start = 14.dp, end = 14.dp)
-    ) {
-        Surface(
-            shape = RoundedCornerShape(22.dp),
-            color = if (isDarkReader) Color(0xFF1E1E2A) else MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 8.dp,
-            border = BorderStroke(
-                1.dp,
-                if (isDarkReader) Color(0xFF383846) else MaterialTheme.colorScheme.outlineVariant
+            .then(
+                if (adaptive.isTablet) Modifier.widthIn(max = READER_CAPSULE_MAX_WIDTH) else Modifier
             )
+            .fillMaxWidth()
+    ) {
+        LiquidGlassBox(
+            modifier = Modifier.fillMaxWidth(),
+            state = hazeState,
+            tint = capsuleTint,
+            cornerRadius = 22.dp,
+            widgetSize = GlassWidgetSize.SMALL,
+            sceneType = GlassSceneType.IMMERSIVE,
+            shadowElevation = 10.dp
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
                     "文字选择模式中（长按拖拽光标选词）",
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (isDarkReader) Color.White else MaterialTheme.colorScheme.onSurface
+                    color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
-                Spacer(Modifier.weight(1f))
                 TextButton(
                     onClick = onExitSelectionMode,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
                 ) {
-                    Text("退出选择", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                    Text("退出选择", color = accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
