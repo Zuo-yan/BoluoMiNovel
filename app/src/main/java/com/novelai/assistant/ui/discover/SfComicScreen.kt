@@ -17,6 +17,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -131,7 +133,6 @@ fun SfComicReaderScreen(
     val canNext = !state.loading && state.currentChapterIndex < chapterCount - 1
     val currentTitle = state.info?.chapters?.getOrNull(state.currentChapterIndex)?.title.orEmpty()
     val currentNumber = state.currentChapterIndex + 1
-    val endAnchorIndex = state.endAnchorIndex
     LaunchedEffect(state.info) {
         val info = state.info
         if (info != null && state.pages.isEmpty() && state.error == null) viewModel.openChapter(0)
@@ -141,12 +142,10 @@ fun SfComicReaderScreen(
             listState.animateScrollToItem(0)
         }
     }
-    LaunchedEffect(listState, state.loadedChapterIndex, state.pages.size, state.loading, chapterCount, endAnchorIndex) {
+    LaunchedEffect(listState, state.loadedChapterIndex, state.pages.size, state.loading, chapterCount) {
         snapshotFlow {
             val layout = listState.layoutInfo
-            val endItem = layout.visibleItemsInfo.firstOrNull { it.index == endAnchorIndex }
-            val endVisible = endItem != null &&
-                endItem.offset + endItem.size > layout.viewportStartOffset
+            val endVisible = layout.visibleItemsInfo.any { it.key == "chapter-end" }
             Triple(endVisible, listState.isScrollInProgress, state.currentChapterIndex)
         }.distinctUntilChanged().collect { (endVisible, scrolling, _) ->
             if (endVisible) {
@@ -172,20 +171,43 @@ fun SfComicReaderScreen(
             else -> Box(
                 Modifier.fillMaxSize().padding(padding).pointerInput(state.currentChapterIndex, state.loadedChapterIndex) {
                     awaitPointerEventScope {
+                        var dragStartY: Float? = null
+                        var draggedUp = false
                         while (true) {
-                            awaitPointerEvent()
-                            viewModel.advanceIfAtEnd()
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            when (event.type) {
+                                PointerEventType.Press -> {
+                                    dragStartY = event.changes.firstOrNull()?.position?.y
+                                    draggedUp = false
+                                }
+                                PointerEventType.Move -> {
+                                    val currentY = event.changes.firstOrNull()?.position?.y
+                                    val startY = dragStartY
+                                    if (startY != null && currentY != null && startY - currentY > viewConfiguration.touchSlop) {
+                                        draggedUp = true
+                                    }
+                                }
+                                PointerEventType.Release -> {
+                                    if (draggedUp && event.changes.none { it.pressed }) {
+                                        viewModel.advanceIfAtEnd()
+                                    }
+                                    if (event.changes.none { it.pressed }) {
+                                        dragStartY = null
+                                        draggedUp = false
+                                    }
+                                }
+                                else -> {
+                                    if (event.changes.none { it.pressed }) {
+                                        dragStartY = null
+                                        draggedUp = false
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             ) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 168.dp)) {
-                item(key = "chapter-header") {
-                    androidx.compose.runtime.LaunchedEffect(state.currentChapterIndex) {
-                        viewModel.setEndAnchorIndex(null)
-                    }
-                    Unit
-                }
                 item {
                     Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         AsyncCover(state.info!!.comic.title, state.info!!.comic.cover,
@@ -207,8 +229,7 @@ fun SfComicReaderScreen(
                         Text("切换到第 ${state.currentChapterIndex + 1} 话", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                var hasErrorItem = false
-                state.error?.let { error -> hasErrorItem = true; item(key = "chapter-error") {
+                state.error?.let { error -> item(key = "chapter-error") {
                     Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                     TextButton({ viewModel.openChapter(state.currentChapterIndex) }, Modifier.padding(horizontal = 16.dp)) { Text("重试本章") }
                 } }
@@ -216,15 +237,11 @@ fun SfComicReaderScreen(
                     AsyncCover(state.info!!.comic.title, page, Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         RoundedCornerShape(4.dp), ContentScale.FillWidth, maxDimension = 2048)
                 }
-                val pageItems = state.pages.size
                 if (state.pages.isEmpty() && !state.loading && state.error == null) item(key = "preparing") {
                     Text("正在准备本章图片", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (state.pages.isNotEmpty() && !state.loading) item(key = "chapter-end") {
                     val atLastChapter = state.currentChapterIndex >= chapterCount - 1
-                    LaunchedEffect(pageItems, state.currentChapterIndex) {
-                        viewModel.setEndAnchorIndex(pageItems + if (hasErrorItem) 3 else 2)
-                    }
                     LaunchedEffect(state.currentChapterIndex, atLastChapter) {
                         if (!atLastChapter) {
                             delay(650)

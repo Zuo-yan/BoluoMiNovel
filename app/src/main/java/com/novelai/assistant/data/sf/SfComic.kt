@@ -13,6 +13,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
 import javax.inject.Inject
+import javax.inject.Singleton
 
 data class SfComic(
     val slug: String,
@@ -30,18 +31,11 @@ data class SfComicChapter(val id: String, val title: String)
 data class SfComicInfo(val comic: SfComic, val chapters: List<SfComicChapter>)
 data class SfComicCatalogPage(val comics: List<SfComic>, val lastPage: Int?)
 
-class KtorSfComicClient @Inject constructor() {
-    private val client = HttpClient(io.ktor.client.engine.okhttp.OkHttp) {
-        followRedirects = false
-        expectSuccess = false
-        engine { config {
-            followRedirects(false)
-            followSslRedirects(false)
-            retryOnConnectionFailure(false)
-            connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-        } }
-    }
+@Singleton
+class KtorSfComicClient @Inject constructor(
+    @SfNonRedirectClient private val client: HttpClient
+) {
+    constructor() : this(SfHttpClientFactory.nonRedirectingClient)
 
     suspend fun get(url: String, referer: String? = null): String = getFollowingOfficialRedirects(url, referer, 0)
 

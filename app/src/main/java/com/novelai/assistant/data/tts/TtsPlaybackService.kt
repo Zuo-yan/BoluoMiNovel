@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -18,12 +17,19 @@ import androidx.core.app.NotificationCompat
 import com.novelai.assistant.MainActivity
 import com.novelai.assistant.R
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
  * 听书前台媒体服务：
- * 负责接入 Android 原生及定制系统媒体卡片组件，
- * 提供前台运行保活、锁屏控制器、通知栏大号媒体卡片与控制按钮（上一章、播放/暂停、下一章、关闭）。
+ * 直接观测 TtsPlayer 的 StateFlow（播放状态、语速、书名、章节、段落进度），
+ * 提供前台保活、锁屏媒体控制与通知栏媒体卡片。
  */
 @AndroidEntryPoint
 class TtsPlaybackService : Service() {
@@ -31,9 +37,34 @@ class TtsPlaybackService : Service() {
     @Inject
     lateinit var ttsPlayer: TtsPlayer
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var mediaSession: MediaSessionCompat? = null
-    private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var notificationManager: NotificationManager
+
+    private enum class TransportAction {
+        PLAY, PAUSE, PREVIOUS, NEXT, STOP
+    }
+
+    private data class PlaybackMeta(
+        val speaking: Boolean,
+        val paused: Boolean,
+        val rate: Float,
+        val position: Int,
+        val totalParagraphs: Int
+    )
+
+    private data class MediaSnapshot(
+        val isSpeaking: Boolean,
+        val isPaused: Boolean,
+        val rate: Float,
+        val bookId: String,
+        val bookTitle: String,
+        val chapterTitle: String,
+        val position: Int,
+        val totalParagraphs: Int
+    ) {
+        val isActive: Boolean get() = isSpeaking || isPaused
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -41,153 +72,114 @@ class TtsPlaybackService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
-        // 申请前台 Service 级别的 WakeLock，保障锁屏熄屏时持续朗读
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NovelAI:TtsServiceWakeLock").apply {
-            setReferenceCounted(false)
-        }
-
         // 初始化 MediaSession
         mediaSession = MediaSessionCompat(this, "NovelAiTtsSession").apply {
             setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setPlaybackToLocal(android.media.AudioManager.STREAM_MUSIC)
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() {
-                    if (TtsMediaManager.hasListener()) {
-                        TtsMediaManager.dispatchPlay()
-                    } else {
-                        ttsPlayer.resume()
-                        TtsMediaManager.syncPlayerState(ttsPlayer, isPlaying = true, isPaused = false)
-                    }
-                }
-
-                override fun onPause() {
-                    if (TtsMediaManager.hasListener()) {
-                        TtsMediaManager.dispatchPause()
-                    } else {
-                        ttsPlayer.pause()
-                        TtsMediaManager.syncPlayerState(ttsPlayer, isPlaying = true, isPaused = true)
-                    }
-                }
-
-                override fun onSkipToNext() {
-                    if (TtsMediaManager.hasListener()) {
-                        TtsMediaManager.dispatchSkipToNext()
-                    } else {
-                        ttsPlayer.playNextChapterAuto()
-                    }
-                }
-
-                override fun onSkipToPrevious() {
-                    if (TtsMediaManager.hasListener()) {
-                        TtsMediaManager.dispatchSkipToPrevious()
-                    } else {
-                        ttsPlayer.playPreviousChapterAuto()
-                    }
-                }
-
-                override fun onStop() {
-                    if (TtsMediaManager.hasListener()) {
-                        TtsMediaManager.dispatchStop()
-                    } else {
-                        ttsPlayer.stop()
-                        TtsMediaManager.stopService(this@TtsPlaybackService)
-                    }
-                }
+                override fun onPlay() = dispatchTransportAction(TransportAction.PLAY)
+                override fun onPause() = dispatchTransportAction(TransportAction.PAUSE)
+                override fun onSkipToNext() = dispatchTransportAction(TransportAction.NEXT)
+                override fun onSkipToPrevious() = dispatchTransportAction(TransportAction.PREVIOUS)
+                override fun onStop() = dispatchTransportAction(TransportAction.STOP)
             })
             isActive = true
         }
 
-        // 必须在 onCreate 中立即启动前台通知，避免系统 5 秒超前后台杀除限制
-        val info = TtsMediaManager.currentInfo
-        val notification = buildNotification(info)
-        startForegroundCompat(notification)
-        updatePlaybackState(info)
-        acquireWakeLock()
+        // 必须在 onCreate 中立即启动前台通知，避免系统 5 秒前台超时限制
+        val initialSnapshot = currentMediaSnapshot()
+        startForegroundCompat(buildNotification(initialSnapshot))
+        updatePlaybackState(initialSnapshot)
+        observePlayerState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
-        when (action) {
-            ACTION_PLAY -> {
-                if (TtsMediaManager.hasListener()) {
-                    TtsMediaManager.dispatchPlay()
-                } else {
-                    ttsPlayer.resume()
-                    TtsMediaManager.syncPlayerState(ttsPlayer, isPlaying = true, isPaused = false)
-                }
-            }
-            ACTION_PAUSE -> {
-                if (TtsMediaManager.hasListener()) {
-                    TtsMediaManager.dispatchPause()
-                } else {
-                    ttsPlayer.pause()
-                    TtsMediaManager.syncPlayerState(ttsPlayer, isPlaying = true, isPaused = true)
-                }
-            }
-            ACTION_PREVIOUS -> {
-                if (TtsMediaManager.hasListener()) {
-                    TtsMediaManager.dispatchSkipToPrevious()
-                } else {
-                    ttsPlayer.playPreviousChapterAuto()
-                }
-            }
-            ACTION_NEXT -> {
-                if (TtsMediaManager.hasListener()) {
-                    TtsMediaManager.dispatchSkipToNext()
-                } else {
-                    ttsPlayer.playNextChapterAuto()
-                }
-            }
+        when (intent?.action) {
+            ACTION_PLAY -> dispatchTransportAction(TransportAction.PLAY)
+            ACTION_PAUSE -> dispatchTransportAction(TransportAction.PAUSE)
+            ACTION_PREVIOUS -> dispatchTransportAction(TransportAction.PREVIOUS)
+            ACTION_NEXT -> dispatchTransportAction(TransportAction.NEXT)
             ACTION_STOP -> {
-                if (TtsMediaManager.hasListener()) {
-                    TtsMediaManager.dispatchStop()
-                } else {
-                    ttsPlayer.stop()
-                }
-                stopForegroundAndSelf()
+                dispatchTransportAction(TransportAction.STOP)
                 return START_NOT_STICKY
             }
             ACTION_UPDATE_STATE, null -> {
-                updateNotification()
+                val snapshot = currentMediaSnapshot()
+                if (snapshot.isActive) {
+                    notificationManager.notify(NOTIFICATION_ID, buildNotification(snapshot))
+                    updatePlaybackState(snapshot)
+                }
             }
         }
         return START_STICKY
     }
 
-    fun updateNotification() {
-        val info = TtsMediaManager.currentInfo
-        if (info.isPlaying) {
-            if (!info.isPaused) {
-                acquireWakeLock()
-            } else {
-                releaseWakeLock()
+    private fun dispatchTransportAction(action: TransportAction) {
+        when (action) {
+            TransportAction.PLAY -> ttsPlayer.resume()
+            TransportAction.PAUSE -> ttsPlayer.pause()
+            TransportAction.PREVIOUS -> ttsPlayer.playPreviousChapterAuto()
+            TransportAction.NEXT -> ttsPlayer.playNextChapterAuto()
+            TransportAction.STOP -> {
+                ttsPlayer.stop()
+                ttsPlayer.resetTimer()
+                stopForegroundAndSelf()
             }
-            val notification = buildNotification(info)
-            notificationManager.notify(NOTIFICATION_ID, notification)
-            updatePlaybackState(info)
-        } else {
-            stopForegroundAndSelf()
         }
     }
 
-    private fun acquireWakeLock() {
-        try {
-            if (wakeLock?.isHeld != true) {
-                wakeLock?.acquire(2 * 60 * 60 * 1000L)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
+    private fun currentMediaSnapshot(): MediaSnapshot = MediaSnapshot(
+        isSpeaking = ttsPlayer.speaking.value,
+        isPaused = ttsPlayer.paused.value,
+        rate = ttsPlayer.rate.value,
+        bookId = ttsPlayer.currentBookId.value,
+        bookTitle = ttsPlayer.currentBookTitle.value,
+        chapterTitle = ttsPlayer.currentChapterTitle.value,
+        position = ttsPlayer.position.value,
+        totalParagraphs = ttsPlayer.totalParagraphs.value
+    )
 
-    private fun releaseWakeLock() {
-        try {
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
+    private fun observePlayerState() {
+        val playbackFlow = combine(
+            ttsPlayer.speaking,
+            ttsPlayer.paused,
+            ttsPlayer.rate,
+            ttsPlayer.position,
+            ttsPlayer.totalParagraphs
+        ) { speaking, paused, rate, position, totalParagraphs ->
+            PlaybackMeta(speaking, paused, rate, position, totalParagraphs)
+        }
+
+        val metadataFlow = combine(
+            ttsPlayer.currentBookId,
+            ttsPlayer.currentBookTitle,
+            ttsPlayer.currentChapterTitle
+        ) { bookId, bookTitle, chapterTitle ->
+            Triple(bookId, bookTitle, chapterTitle)
+        }
+
+        serviceScope.launch {
+            combine(playbackFlow, metadataFlow) { playback, (bookId, bookTitle, chapterTitle) ->
+                MediaSnapshot(
+                    isSpeaking = playback.speaking,
+                    isPaused = playback.paused,
+                    rate = playback.rate,
+                    bookId = bookId,
+                    bookTitle = bookTitle,
+                    chapterTitle = chapterTitle,
+                    position = playback.position,
+                    totalParagraphs = playback.totalParagraphs
+                )
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+                .distinctUntilChanged()
+                .collect { snapshot ->
+                    if (snapshot.isActive) {
+                        notificationManager.notify(NOTIFICATION_ID, buildNotification(snapshot))
+                        updatePlaybackState(snapshot)
+                    } else {
+                        stopForegroundAndSelf()
+                    }
+                }
         }
     }
 
@@ -203,20 +195,18 @@ class TtsPlaybackService : Service() {
         }
     }
 
-    private fun updatePlaybackState(info: TtsMediaInfo) {
+    private fun updatePlaybackState(snapshot: MediaSnapshot) {
         val session = mediaSession ?: return
 
-        // 1. 设置元数据
         val meta = MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, info.chapterTitle)
-            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, info.bookTitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, snapshot.chapterTitle.ifBlank { "正在朗读" })
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, snapshot.bookTitle.ifBlank { "小说阅读" })
             .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "菠萝蜜小说 · 听书")
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, -1L)
             .build()
         session.setMetadata(meta)
 
-        // 2. 设置播放器状态与可用动作
-        val state = if (info.isPaused) PlaybackStateCompat.STATE_PAUSED else PlaybackStateCompat.STATE_PLAYING
+        val state = if (snapshot.isPaused) PlaybackStateCompat.STATE_PAUSED else PlaybackStateCompat.STATE_PLAYING
         val actions = PlaybackStateCompat.ACTION_PLAY or
                 PlaybackStateCompat.ACTION_PAUSE or
                 PlaybackStateCompat.ACTION_PLAY_PAUSE or
@@ -226,19 +216,18 @@ class TtsPlaybackService : Service() {
 
         val stateCompat = PlaybackStateCompat.Builder()
             .setActions(actions)
-            .setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+            .setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, snapshot.rate)
             .build()
         session.setPlaybackState(stateCompat)
     }
 
-    private fun buildNotification(info: TtsMediaInfo): Notification {
+    private fun buildNotification(snapshot: MediaSnapshot): Notification {
         val sessionToken = mediaSession?.sessionToken
 
-        // 点击通知卡片进入专门听书模块
         val contentIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("EXTRA_ROUTE", "listening")
-            putExtra("EXTRA_BOOK_ID", info.bookId)
+            putExtra(EXTRA_BOOK_ID, snapshot.bookId)
         }
         val pendingContent = PendingIntent.getActivity(
             this,
@@ -248,7 +237,7 @@ class TtsPlaybackService : Service() {
         )
 
         val prevPending = createActionPendingIntent(ACTION_PREVIOUS, 1)
-        val playPausePending = if (info.isPaused) {
+        val playPausePending = if (snapshot.isPaused) {
             createActionPendingIntent(ACTION_PLAY, 2)
         } else {
             createActionPendingIntent(ACTION_PAUSE, 2)
@@ -262,17 +251,24 @@ class TtsPlaybackService : Service() {
             .setShowCancelButton(true)
             .setCancelButtonIntent(stopPending)
 
+        val subText = if (snapshot.totalParagraphs > 0) {
+            val currentPara = (snapshot.position + 1).coerceIn(1, snapshot.totalParagraphs)
+            "第 $currentPara/${snapshot.totalParagraphs} 段 · 菠萝蜜小说"
+        } else {
+            "菠萝蜜小说 · 听书"
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_tts_notification)
-            .setContentTitle(info.chapterTitle)
-            .setContentText(info.bookTitle)
-            .setSubText("菠萝蜜小说 · 听书")
+            .setContentTitle(snapshot.chapterTitle.ifBlank { "正在朗读" })
+            .setContentText(snapshot.bookTitle.ifBlank { "小说阅读" })
+            .setSubText(subText)
             .setContentIntent(pendingContent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setOnlyAlertOnce(true)
-            .setOngoing(!info.isPaused)
+            .setOngoing(!snapshot.isPaused)
             .setStyle(mediaStyle)
             .addAction(
                 android.R.drawable.ic_media_previous,
@@ -280,8 +276,8 @@ class TtsPlaybackService : Service() {
                 prevPending
             )
             .addAction(
-                if (info.isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
-                if (info.isPaused) "播放" else "暂停",
+                if (snapshot.isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (snapshot.isPaused) "播放" else "暂停",
                 playPausePending
             )
             .addAction(
@@ -324,8 +320,7 @@ class TtsPlaybackService : Service() {
         }
     }
 
-    fun stopForegroundAndSelf() {
-        releaseWakeLock()
+    private fun clearForegroundNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -333,12 +328,17 @@ class TtsPlaybackService : Service() {
             stopForeground(true)
         }
         notificationManager.cancel(NOTIFICATION_ID)
+    }
+
+    fun stopForegroundAndSelf() {
+        clearForegroundNotification()
         stopSelf()
     }
 
     override fun onDestroy() {
         instance = null
-        stopForegroundAndSelf()
+        serviceScope.cancel()
+        clearForegroundNotification()
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
@@ -362,9 +362,5 @@ class TtsPlaybackService : Service() {
         const val ACTION_UPDATE_STATE = "com.novelai.assistant.action.TTS_UPDATE_STATE"
 
         const val EXTRA_BOOK_ID = "EXTRA_BOOK_ID"
-        const val EXTRA_BOOK_TITLE = "EXTRA_BOOK_TITLE"
-        const val EXTRA_CHAPTER_TITLE = "EXTRA_CHAPTER_TITLE"
-        const val EXTRA_IS_PLAYING = "EXTRA_IS_PLAYING"
-        const val EXTRA_IS_PAUSED = "EXTRA_IS_PAUSED"
     }
 }

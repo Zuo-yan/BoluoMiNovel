@@ -1,6 +1,5 @@
 package com.novelai.assistant.ui.discover
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,8 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,7 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun SfBrowseScreen(
     onBack: () -> Unit,
     onOpenBookDetail: (String) -> Unit,
-    viewModel: SfViewModel = hiltViewModel()
+    viewModel: SfBrowseViewModel = hiltViewModel()
 ) {
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
@@ -49,6 +46,7 @@ fun SfBrowseScreen(
     val hasMoreBrowse by viewModel.hasMoreBrowse.collectAsStateWithLifecycle()
     val isBrowseLoadingMore by viewModel.isBrowseLoadingMore.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val safety by viewModel.safety.collectAsStateWithLifecycle()
 
     var searchInput by remember { mutableStateOf("") }
     val selectedTagIds = browseFilter.tagIds
@@ -116,7 +114,11 @@ fun SfBrowseScreen(
         ) {
             // 动态安全熔断提示（提供无视风险继续使用按钮）
             Box(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
-                SfSafetyNotice(viewModel)
+                SfSafetyNotice(
+                    protection = safety,
+                    onAcknowledgeCooldown = { viewModel.acknowledgeCooldown() },
+                    onForceBypass = { viewModel.forceBypassSafety() }
+                )
             }
 
             // 搜索输入框

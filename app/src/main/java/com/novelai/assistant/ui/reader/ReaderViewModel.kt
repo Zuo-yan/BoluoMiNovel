@@ -1,33 +1,34 @@
 package com.novelai.assistant.ui.reader
 
-import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelai.assistant.data.db.BookEntity
+import com.novelai.assistant.data.db.BookSourceType
 import com.novelai.assistant.data.db.ChapterEntity
-import com.novelai.assistant.data.db.ChapterOriginType
 import com.novelai.assistant.data.prefs.PageMode
 import com.novelai.assistant.data.prefs.ReaderBgTheme
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
 import com.novelai.assistant.data.prefs.ReadingSettings
 import com.novelai.assistant.data.repository.BookRepository
-import com.novelai.assistant.data.tts.TtsMediaManager
-import com.novelai.assistant.data.tts.TtsMediaActionListener
+import com.novelai.assistant.data.sf.BookExportFormat
+import com.novelai.assistant.data.sf.SfException
+import com.novelai.assistant.data.sf.SfFailureKind
+import com.novelai.assistant.data.sf.SfParagraphComment
+import com.novelai.assistant.data.tts.TtsPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -36,37 +37,26 @@ import javax.inject.Inject
 
 typealias TtsTimerMode = com.novelai.assistant.data.tts.TtsTimerMode
 
-enum class TocFilter(val label: String) {
-    ALL("全部"), ORIGINAL("仅原作"), AI("AI 衍生"), TREE("分支树")
-}
-
-data class TocItem(
-    val chapter: ChapterEntity,
-    val depth: Int
-)
-
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    @ApplicationContext private val context: Context,
     private val bookRepository: BookRepository,
     private val readingPreferencesRepository: ReadingPreferencesRepository,
-    val ttsPlayer: com.novelai.assistant.data.tts.TtsPlayer
+    private val ttsPlayer: TtsPlayer
 ) : ViewModel() {
 
     val bookId: String = savedStateHandle["bookId"] ?: ""
-    private val positions = context.getSharedPreferences("reader_positions", Context.MODE_PRIVATE)
     private val initialChapterIndex: Int = (savedStateHandle.get<Int>("chapter") ?: -1).let {
-        if (it >= 0) it else positions.getInt("$bookId:lastChapter", -1)
+        if (it >= 0) it else readingPreferencesRepository.getLastChapterIndex(bookId)
     }
-    fun readPosition(chapterId: String): ReadingAnchor = ReadingAnchor(
-        positions.getInt("$chapterId:paragraph", 0), positions.getInt("$chapterId:character", 0),
-        positions.getInt("$chapterId:scroll", 0))
+
+    fun readPosition(chapterId: String): ReadingAnchor =
+        readingPreferencesRepository.getChapterAnchor(chapterId)
+
     fun savePosition(chapterId: String, anchor: ReadingAnchor) {
         if (chapterId != currentChapter.value?.id) return
-        positions.edit().putInt("$chapterId:paragraph", anchor.paragraph)
-            .putInt("$chapterId:character", anchor.character).putInt("$chapterId:scroll", anchor.scroll)
-            .putInt("$bookId:lastChapter", currentChapter.value?.chapterIndex ?: _chapterIndex.value).apply()
+        val chapterIdx = currentChapter.value?.chapterIndex ?: _chapterIndex.value
+        readingPreferencesRepository.saveChapterAnchor(bookId, chapterId, chapterIdx, anchor)
     }
 
     val book: StateFlow<BookEntity?> = bookRepository.observeBook(bookId)
@@ -106,68 +96,49 @@ class ReaderViewModel @Inject constructor(
 
     private val _quotedParaIndex = MutableStateFlow<Int?>(null)
     val quotedParaIndex: StateFlow<Int?> = _quotedParaIndex.asStateFlow()
-    private val _paragraphComments = MutableStateFlow<List<com.novelai.assistant.data.sf.SfParagraphComment>>(emptyList())
-    val paragraphComments = _paragraphComments.asStateFlow()
-    private val _paragraphCommentsLoading = MutableStateFlow(false)
-    val paragraphCommentsLoading = _paragraphCommentsLoading.asStateFlow()
-    private val _paragraphCommentsLoadingMore = MutableStateFlow(false)
-    val paragraphCommentsLoadingMore = _paragraphCommentsLoadingMore.asStateFlow()
-    private val _paragraphCommentsError = MutableStateFlow<String?>(null)
-    val paragraphCommentsError = _paragraphCommentsError.asStateFlow()
-    private val _paragraphCommentsSort = MutableStateFlow("hot")
-    val paragraphCommentsSort = _paragraphCommentsSort.asStateFlow()
-    private val _paragraphCommentsOpen = MutableStateFlow(false)
-    val paragraphCommentsOpen = _paragraphCommentsOpen.asStateFlow()
-    private val _paragraphCommentsQuote = MutableStateFlow("")
-    val paragraphCommentsQuote = _paragraphCommentsQuote.asStateFlow()
-    private val _paragraphCommentsRow = MutableStateFlow<Int?>(null)
-    val paragraphCommentsRow = _paragraphCommentsRow.asStateFlow()
-    private val _paragraphCommentCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
-    val paragraphCommentCounts = _paragraphCommentCounts.asStateFlow()
-    private val _expandedParagraphReplies = MutableStateFlow<Set<String>>(emptySet())
-    val expandedParagraphReplies = _expandedParagraphReplies.asStateFlow()
-    private var paragraphCommentsJob: Job? = null
-    private var paragraphCommentsPage = 0
-    private val replyJobs = mutableMapOf<String, Job>()
-    val replyThreads = MutableStateFlow<Map<String, ReplyThread>>(emptyMap())
-    private fun clearReplyThreads() {
-        replyJobs.values.forEach { it.cancel() }
-        replyJobs.clear()
-        replyThreads.value = emptyMap()
-    }
-    fun loadReplies(id: String) {
-        if (replyThreads.value[id]?.loading == true) return
-        replyThreads.update { it + (id to (it[id] ?: ReplyThread()).copy(loading = true, error = null)) }
-        replyJobs[id] = viewModelScope.launch {
-            try {
-                val replies = bookRepository.remoteParagraphReplies(id)
-                replyThreads.update { it + (id to ReplyThread(replies = replies, loaded = true)) }
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) {
-                replyThreads.update { it + (id to (it[id] ?: ReplyThread()).copy(loading = false, error = e.message ?: "回复加载失败")) }
-            }
-        }
-    }
 
+    // 间贴（SF 段落吐槽与回复）
+    private val tsukkomi = ReaderTsukkomiController(
+        scope = viewModelScope,
+        fetchComments = { chapterId, sort, row, page ->
+            bookRepository.remoteParagraphComments(chapterId, sort, row, page)
+        },
+        fetchReplies = { commentId ->
+            bookRepository.remoteParagraphReplies(commentId)
+        }
+    )
+    val paragraphComments: StateFlow<List<SfParagraphComment>> = tsukkomi.comments
+    val paragraphCommentsLoading: StateFlow<Boolean> = tsukkomi.loading
+    val paragraphCommentsLoadingMore: StateFlow<Boolean> = tsukkomi.loadingMore
+    val paragraphCommentsError: StateFlow<String?> = tsukkomi.error
+    val paragraphCommentsSort: StateFlow<String> = tsukkomi.sort
+    val paragraphCommentsOpen: StateFlow<Boolean> = tsukkomi.open
+    val paragraphCommentsQuote: StateFlow<String> = tsukkomi.quote
+    val paragraphCommentsRow: StateFlow<Int?> = tsukkomi.row
+    val paragraphCommentCounts: StateFlow<Map<Int, Int>> = tsukkomi.commentCounts
+    val expandedParagraphReplies: StateFlow<Set<String>> = tsukkomi.expandedReplies
+    val replyThreads: StateFlow<Map<String, ReplyThread>> = tsukkomi.replyThreads
+
+    fun loadReplies(id: String) = tsukkomi.loadReplies(id)
 
     // 目录树（分支缩进）
     val tocItems: StateFlow<List<TocItem>> =
         combine(chapters, _tocFilter) { list, filter ->
-            when (filter) {
-                TocFilter.ALL -> list.map { TocItem(it, 0) }
-                TocFilter.ORIGINAL -> list.filter { it.originType == ChapterOriginType.ORIGINAL }.map { TocItem(it, 0) }
-                TocFilter.AI -> list.filter { it.originType != ChapterOriginType.ORIGINAL }.map { TocItem(it, 0) }
-                TocFilter.TREE -> buildTree(list)
-            }
+            ReaderTocTree.filterAndBuild(list, filter)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var progressJob: Job? = null
     private val reload = MutableStateFlow(0)
     private val _chapterError = MutableStateFlow<String?>(null)
-    val chapterError = _chapterError.asStateFlow()
-    private val _chapterFailureKind = MutableStateFlow<com.novelai.assistant.data.sf.SfFailureKind?>(null)
-    val chapterFailureKind = _chapterFailureKind.asStateFlow()
+    val chapterError: StateFlow<String?> = _chapterError.asStateFlow()
+    private val _chapterFailureKind = MutableStateFlow<SfFailureKind?>(null)
+    val chapterFailureKind: StateFlow<SfFailureKind?> = _chapterFailureKind.asStateFlow()
+
+    private val _exportMessage = MutableStateFlow<String?>(null)
+    val exportMessage: StateFlow<String?> = _exportMessage.asStateFlow()
+
     fun retryChapter() { reload.value++ }
+    fun clearExportMessage() { _exportMessage.value = null }
 
     init {
         var summaryChapterId: String? = null
@@ -180,30 +151,30 @@ class ReaderViewModel @Inject constructor(
                     if (id != summaryChapterId) {
                         summaryChapterId = id
                         summaryRequestedFor = null
-                        _paragraphCommentCounts.value = emptyMap()
+                        tsukkomi.clearCommentCounts()
                     }
                     if (id != null) {
                         try {
                             val source = bookRepository.getBook(bookId)
-                            if (source?.sourceType == com.novelai.assistant.data.db.BookSourceType.BOLUOBAO &&
+                            if (source?.sourceType == BookSourceType.BOLUOBAO &&
                                 summaryRequestedFor != id
                             ) {
                                 summaryRequestedFor = id
                                 val (_, summaries) = bookRepository.readableChapterWithComments(id)
                                 if (summaryChapterId == id) {
-                                    _paragraphCommentCounts.value = summaries.associate { it.row to it.count }
+                                    tsukkomi.setCommentCounts(summaries.associate { it.row to it.count })
                                 }
                             } else if (empty == true) {
                                 bookRepository.readableChapter(id)
                             }
-                        }
-                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                        catch (e: Exception) {
-                            _chapterFailureKind.value = (e as? com.novelai.assistant.data.sf.SfException)?.kind
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            _chapterFailureKind.value = (e as? SfException)?.kind
                             _chapterError.value = e.message ?: "正文加载失败"
                             // A bounds error must not make the reader look permanently
                             // unreadable when only the optional comment summary failed.
-                            if (empty != true && e !is com.novelai.assistant.data.sf.SfException) {
+                            if (empty != true && e !is SfException) {
                                 summaryRequestedFor = null
                             }
                         }
@@ -246,36 +217,20 @@ class ReaderViewModel @Inject constructor(
             }
         }
 
-        // 注册系统媒体卡片/通知栏动作回调
-        TtsMediaManager.setActionListener(object : TtsMediaActionListener {
-            override fun onPlay() { resumeTts() }
-            override fun onPause() { pauseTts() }
-            override fun onSkipToNext() {
-                val next = _chapterIndex.value + 1
-                val list = chapters.value
-                if (next in list.indices) {
-                    val nextChapter = list[next]
+        // 当通知栏/锁屏/听书页切换当前书的朗读章节时，同步阅读器页内章节
+        ttsPlayer.currentChapterIndex
+            .drop(1)
+            .distinctUntilChanged()
+            .onEach { playingIdx ->
+                val isThisBookPlaying = ttsPlayer.currentBookId.value == bookId &&
+                    (ttsPlayer.speaking.value || ttsPlayer.paused.value)
+                if (isThisBookPlaying && playingIdx in chapters.value.indices && playingIdx != _chapterIndex.value) {
                     _targetPageOnChapterLoad.value = 0
-                    _chapterIndex.value = next
+                    _chapterIndex.value = playingIdx
                     scheduleProgressSave()
-                    startTtsForChapter(nextChapter, 0)
                 }
             }
-            override fun onSkipToPrevious() {
-                val prev = _chapterIndex.value - 1
-                val list = chapters.value
-                if (prev in list.indices) {
-                    val prevChapter = list[prev]
-                    _targetPageOnChapterLoad.value = 0
-                    _chapterIndex.value = prev
-                    scheduleProgressSave()
-                    startTtsForChapter(prevChapter, 0)
-                }
-            }
-            override fun onStop() {
-                stopTts(resetTimer = true)
-            }
-        })
+            .launchIn(viewModelScope)
     }
 
     private val _targetPageOnChapterLoad = MutableStateFlow<Int?>(null)
@@ -362,10 +317,17 @@ class ReaderViewModel @Inject constructor(
             viewModelScope.launch {
                 try {
                     val loaded = bookRepository.readableChapter(chapter.id)
-                    if (requestGeneration == ttsPlayer.playbackGeneration && _chapterIndex.value == chapter.chapterIndex) startTtsForChapter(loaded, startIndex)
+                    if (requestGeneration == ttsPlayer.playbackGeneration && _chapterIndex.value == chapter.chapterIndex) {
+                        startTtsForChapter(loaded, startIndex)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (requestGeneration == ttsPlayer.playbackGeneration) {
+                        _chapterError.value = e.message ?: "本章无法朗读"
+                        ttsPlayer.stop()
+                    }
                 }
-                catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (e: Exception) { if (requestGeneration == ttsPlayer.playbackGeneration) { _chapterError.value = e.message ?: "本章无法朗读"; ttsPlayer.stop() } }
             }
             return
         }
@@ -385,17 +347,14 @@ class ReaderViewModel @Inject constructor(
             chapterTitle = chapter.title,
             onChapterEnd = { onTtsChapterEnd() }
         )
-        syncMediaNotification(chapter, isPlaying = true, isPaused = false)
     }
 
     fun pauseTts() {
         ttsPlayer.pause()
-        currentChapter.value?.let { syncMediaNotification(it, isPlaying = true, isPaused = true) }
     }
 
     fun resumeTts() {
         ttsPlayer.resume()
-        currentChapter.value?.let { syncMediaNotification(it, isPlaying = true, isPaused = false) }
     }
 
     fun stopTts(resetTimer: Boolean = false) {
@@ -403,21 +362,6 @@ class ReaderViewModel @Inject constructor(
         if (resetTimer) {
             ttsPlayer.resetTimer()
         }
-        TtsMediaManager.stopService(context)
-    }
-
-    private fun syncMediaNotification(chapter: ChapterEntity, isPlaying: Boolean, isPaused: Boolean) {
-        val bTitle = book.value?.title ?: "小说阅读"
-        TtsMediaManager.startOrUpdateService(
-            context = context,
-            bookId = bookId,
-            bookTitle = bTitle,
-            chapterTitle = chapter.title,
-            chapterIndex = chapter.chapterIndex,
-            totalChapters = chapters.value.size,
-            isPlaying = isPlaying,
-            isPaused = isPaused
-        )
     }
 
     private fun onTtsChapterEnd() {
@@ -448,15 +392,12 @@ class ReaderViewModel @Inject constructor(
         val isTtsActive = ttsPlayer.speaking.value || ttsPlayer.paused.value
         if (!isTtsActive) {
             ttsPlayer.stop()
-            TtsMediaManager.setActionListener(null)
-            TtsMediaManager.stopService(context)
         }
-        // 兜底保存进度
-        val idx = if (isTtsActive) ttsPlayer.currentChapterIndex.value else _chapterIndex.value
+        // 兜底保存进度（使用 Application 作用域协程，不阻塞主线程）
+        val isThisBookTtsActive = isTtsActive && ttsPlayer.currentBookId.value == bookId
+        val idx = if (isThisBookTtsActive) ttsPlayer.currentChapterIndex.value else _chapterIndex.value
         if (idx >= 0) {
-            kotlinx.coroutines.runBlocking {
-                runCatching { bookRepository.saveProgress(bookId, idx, chapters.value.size) }
-            }
+            bookRepository.saveProgressAsync(bookId, idx, chapters.value.size)
         }
         super.onCleared()
     }
@@ -482,7 +423,7 @@ class ReaderViewModel @Inject constructor(
     fun deleteChapter(chapterId: String) {
         viewModelScope.launch {
             val list = chapters.value
-            val target = list.firstOrNull { it.id == chapterId } ?: return@launch
+            if (list.none { it.id == chapterId }) return@launch
             bookRepository.deleteChapter(bookId, chapterId)
             val cur = _chapterIndex.value
             val remaining = list.filterNot { it.id == chapterId }
@@ -505,88 +446,23 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun openParagraphComments(
-        sort: String = _paragraphCommentsSort.value,
-        quote: String = _paragraphCommentsQuote.value,
-        row: Int? = _paragraphCommentsRow.value ?: _quotedParaIndex.value
+        sort: String = paragraphCommentsSort.value,
+        quote: String = paragraphCommentsQuote.value,
+        row: Int? = paragraphCommentsRow.value ?: _quotedParaIndex.value
     ) {
-        val chapter = currentChapter.value ?: return
-        _paragraphCommentsQuote.value = quote
-        _paragraphCommentsRow.value = row
-        _paragraphCommentsSort.value = sort
-        _paragraphCommentsOpen.value = true
-        _paragraphCommentsLoading.value = true
-        _paragraphCommentsLoadingMore.value = false
-        _paragraphCommentsError.value = null
-        paragraphCommentsPage = 0
-        _expandedParagraphReplies.value = emptySet()
-        clearReplyThreads()
-        paragraphCommentsJob?.cancel()
-        val remoteId = sfTsukkomiChapterId(chapter.id, chapter.remoteId)
-        if (remoteId == null) {
-            _paragraphCommentsLoading.value = false
-            _paragraphCommentsError.value = "本地章节没有可读取的菠萝包间贴"
-            return
-        }
-        paragraphCommentsJob = viewModelScope.launch {
-            try {
-                val remote = bookRepository.remoteParagraphComments(remoteId, sort, row)
-                _paragraphComments.value = remote
-                paragraphCommentsPage = 1
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) {
-                _paragraphComments.value = emptyList()
-                _paragraphCommentsError.value = e.message ?: "章节间贴加载失败"
-            } finally { _paragraphCommentsLoading.value = false }
-        }
+        tsukkomi.open(currentChapter.value, sort = sort, quote = quote, row = row)
     }
 
     fun loadMoreParagraphComments() {
-        if (_paragraphCommentsLoading.value || _paragraphCommentsLoadingMore.value) return
-        if (_paragraphComments.value.size < 20) return
-        val chapter = currentChapter.value ?: return
-        val remoteId = sfTsukkomiChapterId(chapter.id, chapter.remoteId) ?: return
-        val before = _paragraphComments.value
-        val nextPage = paragraphCommentsPage + 1
-        paragraphCommentsJob = viewModelScope.launch {
-            _paragraphCommentsLoadingMore.value = true
-            try {
-                val row = _paragraphCommentsRow.value
-                val page = bookRepository.remoteParagraphComments(
-                    remoteId,
-                    _paragraphCommentsSort.value,
-                    row,
-                    nextPage
-                )
-                val merged = (before + page).distinctBy { it.id }
-                _paragraphComments.value = merged
-                paragraphCommentsPage = nextPage
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _paragraphCommentsError.value = e.message ?: "更多间贴加载失败"
-            } finally {
-                _paragraphCommentsLoadingMore.value = false
-            }
-        }
+        tsukkomi.loadMore(currentChapter.value)
     }
 
     fun toggleParagraphReplies(commentId: String) {
-        if (_paragraphComments.value.none { it.id == commentId }) return
-        _expandedParagraphReplies.update { current ->
-            if (commentId in current) current - commentId else current + commentId
-        }
-        if (commentId in _expandedParagraphReplies.value && replyThreads.value[commentId]?.loaded != true) loadReplies(commentId)
+        tsukkomi.toggleReplies(commentId)
     }
 
     fun closeParagraphComments() {
-        paragraphCommentsJob?.cancel()
-        _paragraphCommentsOpen.value = false
-        _paragraphCommentsLoading.value = false
-        _paragraphCommentsLoadingMore.value = false
-        paragraphCommentsPage = 0
-        _paragraphCommentsRow.value = null
-        _expandedParagraphReplies.value = emptySet()
-        clearReplyThreads()
+        tsukkomi.close()
     }
 
     fun playFromQuotedParagraph() {
@@ -635,66 +511,29 @@ class ReaderViewModel @Inject constructor(
     fun exportChapter(uri: Uri?, markdown: Boolean) {
         if (uri == null) return
         val chapter = currentChapter.value ?: return
-        if (chapter.content.isBlank()) return
-        viewModelScope.launch {
-            runCatching {
-                val text = if (markdown) {
-                    "# ${chapter.title}\n\n${chapter.content}"
-                } else {
-                    "${chapter.title}\n\n${chapter.content}"
-                }
-                context.contentResolver.openOutputStream(uri)?.use { out ->
-                    out.write(text.toByteArray(Charsets.UTF_8))
-                }
-            }
+        if (chapter.content.isBlank()) {
+            _exportMessage.value = "当前章节正文为空，无法导出"
+            return
         }
-    }
-
-    companion object {
-        private fun buildTree(list: List<ChapterEntity>): List<TocItem> {
-            val byId = list.associateBy { it.id }
-            fun depth(chapter: ChapterEntity): Int {
-                var d = 0
-                var cur = chapter
-                while (cur.parentChapterId != null) {
-                    d++
-                    cur = byId[cur.parentChapterId] ?: break
-                    if (d > 20) break
-                }
-                return d
+        val targetBook = book.value ?: BookEntity(
+            id = bookId,
+            title = chapter.title,
+            author = "",
+            coverUri = null,
+            sourcePath = "",
+            sourceType = BookSourceType.LOCAL_TXT,
+            totalChapters = chapters.value.size
+        )
+        val format = if (markdown) BookExportFormat.MARKDOWN else BookExportFormat.TXT
+        viewModelScope.launch {
+            try {
+                bookRepository.exportChapterToUri(uri, targetBook, chapter, format)
+                _exportMessage.value = "已导出 ${format.extension.uppercase()} 文件"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _exportMessage.value = e.message ?: "章节导出失败"
             }
-            // 树形排序：原作章节依次展开，AI 章节紧跟其父章节之后
-            val result = mutableListOf<TocItem>()
-            val processed = mutableSetOf<String>()
-            for (chapter in list) {
-                if (chapter.id in processed) continue
-                result.add(TocItem(chapter, depth(chapter)))
-                processed.add(chapter.id)
-                // 追加所有以它为父的衍生章节（递归）
-                fun appendChildren(parent: ChapterEntity) {
-                    val children = list.filter { it.parentChapterId == parent.id }
-                    for (child in children) {
-                        if (child.id in processed) continue
-                        result.add(TocItem(child, depth(child)))
-                        processed.add(child.id)
-                        appendChildren(child)
-                    }
-                }
-                appendChildren(chapter)
-            }
-            // 兜底：遗漏的章节补在末尾
-            list.filter { it.id !in processed }.forEach { result.add(TocItem(it, 0)) }
-            return result
         }
     }
 }
-
-/** Remote chapter IDs are separate from the local `sf:<book>:<chapter>` primary key. */
-internal fun sfTsukkomiChapterId(localId: String, remoteId: String?): String? =
-    remoteId?.takeIf { it.matches(Regex("\\d+")) }
-        ?: localId.takeIf { it.matches(Regex("\\d+")) }
-
- data class ReplyThread(
-    val replies: List<com.novelai.assistant.data.sf.SfParagraphReply> = emptyList(),
-    val loading: Boolean = false, val loaded: Boolean = false, val error: String? = null
- )

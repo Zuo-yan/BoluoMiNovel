@@ -1,158 +1,66 @@
 package com.novelai.assistant.ui.reader
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
-import com.novelai.assistant.ui.components.glassSource
-import com.novelai.assistant.ui.components.liquidGlass
-import com.novelai.assistant.ui.components.rememberGlassState
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CallMerge
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.FormatSize
-import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material.icons.rounded.Headphones
-import androidx.compose.material.icons.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.HourglassBottom
-import androidx.compose.material.icons.rounded.Check
-import java.util.Locale
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Badge
-import androidx.compose.material3.Switch
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.novelai.assistant.data.prefs.ReaderBgTheme
-import com.novelai.assistant.data.prefs.ReadingSettings
+import com.novelai.assistant.data.db.BookSourceType
+import com.novelai.assistant.data.db.ChapterEntity
 import com.novelai.assistant.data.prefs.PageMode
-import com.novelai.assistant.ui.components.OriginBadge
-import com.novelai.assistant.ui.components.SegmentedControl
-import com.novelai.assistant.ui.discover.SfAvatar
-import com.novelai.assistant.ui.theme.ReaderPalettes
-import com.novelai.assistant.ui.theme.readerFontFamily
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.ui.graphics.luminance
-import com.novelai.assistant.ui.theme.NovelColors
+import com.novelai.assistant.data.prefs.ReaderBgTheme
+import com.novelai.assistant.data.sf.SfFailureKind
+import com.novelai.assistant.ui.components.glassSource
+import com.novelai.assistant.ui.components.rememberGlassState
+import com.novelai.assistant.ui.discover.SfBookToolsDialog
 import com.novelai.assistant.ui.theme.NovelAITheme
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
+import com.novelai.assistant.ui.theme.ReaderPalettes
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     bookId: String,
@@ -170,6 +78,7 @@ fun ReaderScreen(
     val currentChapter by viewModel.currentChapter.collectAsStateWithLifecycle()
     val chapterError by viewModel.chapterError.collectAsStateWithLifecycle()
     val chapterFailureKind by viewModel.chapterFailureKind.collectAsStateWithLifecycle()
+    val exportMessage by viewModel.exportMessage.collectAsStateWithLifecycle()
     var sfToolsOpen by remember { mutableStateOf(false) }
     val chromeVisible by viewModel.chromeVisible.collectAsStateWithLifecycle()
     val tocOpen by viewModel.tocOpen.collectAsStateWithLifecycle()
@@ -209,25 +118,22 @@ fun ReaderScreen(
     val isEffectiveDark = isReaderBgDark || isThemeDark
     val isDarkReader = isEffectiveDark
 
-    // 控制栏文本与图标色：深色控制栏固定使用高对比度浅色文本，浅色控制栏使用调色板配置，彻底解决暗黑模式下AI续写旁边文字黑底黑字不可读问题
+    // 控制栏文本与图标色：深色控制栏固定使用高对比度浅色文本，浅色控制栏使用调色板配置
     val onChromeColor = if (isDarkReader) Color(0xFFF2F2F7) else Color(palette.onChrome)
     val secondaryColor = if (isDarkReader) Color(0xFFA5A5B2) else Color(palette.secondaryText)
     val haptics = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
 
-    var showExportMenu by remember { mutableStateOf(false) }
-    var showGenMenu by remember { mutableStateOf(false) }
     var exportMarkdown by remember { mutableStateOf(true) }
     var selectionMode by remember { mutableStateOf(false) }
-    var actionChapter by remember { mutableStateOf<com.novelai.assistant.data.db.ChapterEntity?>(null) }
-    var renameChapterTarget by remember { mutableStateOf<com.novelai.assistant.data.db.ChapterEntity?>(null) }
+    var actionChapter by remember { mutableStateOf<ChapterEntity?>(null) }
+    var renameChapterTarget by remember { mutableStateOf<ChapterEntity?>(null) }
     var renameTitleDraft by remember { mutableStateOf("") }
-    var confirmDeleteChapter by remember { mutableStateOf<com.novelai.assistant.data.db.ChapterEntity?>(null) }
-    var currentVisibleParaIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var confirmDeleteChapter by remember { mutableStateOf<ChapterEntity?>(null) }
+    var currentVisibleParaIndex by remember { mutableIntStateOf(0) }
 
     // 阅读亮度（1.0 = 跟随系统）
-    var brightness by remember { mutableStateOf(1f) }
-    val view = androidx.compose.ui.platform.LocalView.current
+    var brightness by remember { mutableFloatStateOf(1f) }
+    val view = LocalView.current
     // 后台支持持续听书，由前台服务与通知栏控制，不随页面销毁强制中断
     DisposableEffect(brightness) {
         val window = (view.context as? Activity)?.window
@@ -250,7 +156,7 @@ fun ReaderScreen(
     val isBgDark = bgColor.luminance() < 0.5f
     DisposableEffect(isBgDark) {
         val window = (view.context as? Activity)?.window
-        val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
         val original = controller?.isAppearanceLightStatusBars
         if (controller != null) controller.isAppearanceLightStatusBars = !isBgDark
         onDispose {
@@ -258,19 +164,26 @@ fun ReaderScreen(
         }
     }
 
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
+    LaunchedEffect(exportMessage) {
+        exportMessage?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            viewModel.clearExportMessage()
+        }
+    }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* 通知权限授权结果 */ }
 
     fun checkNotificationPermission() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
                 context,
-                android.Manifest.permission.POST_NOTIFICATIONS
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
             if (!granted) {
-                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
     }
@@ -285,14 +198,17 @@ fun ReaderScreen(
         if (tocOpen && tocItems.isNotEmpty()) {
             val targetIdx = tocItems.indexOfFirst { it.chapter.id == currentChapter?.id }
             if (targetIdx >= 0) {
-                // 向上偏移 2 项，让当前章节正好位于屏幕上半部分居中位置
                 val scrollPos = (targetIdx - 2).coerceAtLeast(0)
                 tocListState.scrollToItem(scrollPos)
             }
         }
     }
 
-    BackHandler(enabled = selectionMode || tocOpen || settingsOpen || timerSheetOpen || quotedText != null || paragraphCommentsOpen || actionChapter != null || renameChapterTarget != null || confirmDeleteChapter != null) {
+    BackHandler(
+        enabled = selectionMode || tocOpen || settingsOpen || timerSheetOpen ||
+            quotedText != null || paragraphCommentsOpen ||
+            actionChapter != null || renameChapterTarget != null || confirmDeleteChapter != null
+    ) {
         when {
             selectionMode -> {
                 selectionMode = false
@@ -325,541 +241,209 @@ fun ReaderScreen(
                 .fillMaxSize()
                 .glassSource(readerHazeState)
         ) {
-        currentChapter?.takeIf { it.content.isNotBlank() }?.let { chapter ->
-            val paragraphs = remember(chapter.id, chapter.content) { Paginator.splitParagraphs(chapter.content) }
-            val contentModifier: Modifier = Modifier
-            val content: @Composable () -> Unit = {
-                if (settings.pageMode == PageMode.PAGED) {
-                    PagedContent(
-                        chapterId = chapter.id,
-                        readPosition = { viewModel.readPosition(chapter.id) },
-                        savePosition = { viewModel.savePosition(chapter.id, it) },
-                        paragraphs = paragraphs,
-                        settings = settings,
-                        palette = palette,
-                        statusBarPad = statusBarPad,
-                        navBarPad = navBarPad,
-                        chromeVisible = chromeVisible,
-                        ttsSpeaking = activeSpeaking,
-                        ttsPaused = activePaused,
-                        ttsPosition = activePosition,
-                        isDarkReader = isDarkReader,
-                        onToggleChrome = { viewModel.toggleChrome() },
-                        onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
-                        commentCounts = paragraphCommentCounts,
-                        onOpenComments = { text, idx ->
-                            viewModel.quoteParagraph(text, idx)
-                            viewModel.openParagraphComments(quote = text, row = idx)
-                            viewModel.clearQuote()
-                        },
-                        onPageTurn = {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.scheduleProgressSave()
-                        },
-                        onVisibleParaChange = { currentVisibleParaIndex = it },
-                        onNextChapter = { viewModel.openNextChapter() },
-                        onPrevChapter = { viewModel.openPreviousChapter() },
-                        hasNextChapter = chapterIndex < chapters.lastIndex,
-                        hasPrevChapter = chapterIndex > 0,
-                        selectionMode = selectionMode,
-                        targetPageProvider = { viewModel.consumeTargetPage() }
-                    )
-                } else {
-                    ScrollContent(
-                        chapterId = chapter.id,
-                        readPosition = { viewModel.readPosition(chapter.id) },
-                        savePosition = { viewModel.savePosition(chapter.id, it) },
-                        paragraphs = paragraphs,
-                        settings = settings,
-                        palette = palette,
-                        statusBarPad = statusBarPad,
-                        navBarPad = navBarPad,
-                        ttsSpeaking = activeSpeaking,
-                        ttsPaused = activePaused,
-                        ttsPosition = activePosition,
-                        isDarkReader = isDarkReader,
-                        onToggleChrome = { viewModel.toggleChrome() },
-                        onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
-                        commentCounts = paragraphCommentCounts,
-                        onOpenComments = { text, idx ->
-                            viewModel.quoteParagraph(text, idx)
-                            viewModel.openParagraphComments(quote = text, row = idx)
-                            viewModel.clearQuote()
-                        },
-                        onProgress = { viewModel.scheduleProgressSave() },
-                        onVisibleParaChange = { currentVisibleParaIndex = it },
-                        selectionMode = selectionMode
-                    )
+            currentChapter?.takeIf { it.content.isNotBlank() }?.let { chapter ->
+                val paragraphs = remember(chapter.id, chapter.content) { Paginator.splitParagraphs(chapter.content) }
+                val content: @Composable () -> Unit = {
+                    if (settings.pageMode == PageMode.PAGED) {
+                        PagedContent(
+                            chapterId = chapter.id,
+                            readPosition = { viewModel.readPosition(chapter.id) },
+                            savePosition = { viewModel.savePosition(chapter.id, it) },
+                            paragraphs = paragraphs,
+                            settings = settings,
+                            palette = palette,
+                            statusBarPad = statusBarPad,
+                            navBarPad = navBarPad,
+                            chromeVisible = chromeVisible,
+                            ttsSpeaking = activeSpeaking,
+                            ttsPaused = activePaused,
+                            ttsPosition = activePosition,
+                            isDarkReader = isDarkReader,
+                            onToggleChrome = { viewModel.toggleChrome() },
+                            onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
+                            commentCounts = paragraphCommentCounts,
+                            onOpenComments = { text, idx ->
+                                viewModel.openParagraphComments(quote = text, row = idx)
+                            },
+                            onPageTurn = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.scheduleProgressSave()
+                            },
+                            onVisibleParaChange = { currentVisibleParaIndex = it },
+                            onNextChapter = { viewModel.openNextChapter() },
+                            onPrevChapter = { viewModel.openPreviousChapter() },
+                            hasNextChapter = chapterIndex < chapters.lastIndex,
+                            hasPrevChapter = chapterIndex > 0,
+                            selectionMode = selectionMode,
+                            targetPageProvider = { viewModel.consumeTargetPage() }
+                        )
+                    } else {
+                        ScrollContent(
+                            chapterId = chapter.id,
+                            readPosition = { viewModel.readPosition(chapter.id) },
+                            savePosition = { viewModel.savePosition(chapter.id, it) },
+                            paragraphs = paragraphs,
+                            settings = settings,
+                            palette = palette,
+                            statusBarPad = statusBarPad,
+                            navBarPad = navBarPad,
+                            ttsSpeaking = activeSpeaking,
+                            ttsPaused = activePaused,
+                            ttsPosition = activePosition,
+                            isDarkReader = isDarkReader,
+                            onToggleChrome = { viewModel.toggleChrome() },
+                            onQuote = { text, idx -> viewModel.quoteParagraph(text, idx) },
+                            commentCounts = paragraphCommentCounts,
+                            onOpenComments = { text, idx ->
+                                viewModel.openParagraphComments(quote = text, row = idx)
+                            },
+                            onProgress = { viewModel.scheduleProgressSave() },
+                            onVisibleParaChange = { currentVisibleParaIndex = it },
+                            selectionMode = selectionMode
+                        )
+                    }
                 }
-            }
-            if (selectionMode) {
-                SelectionContainer(modifier = Modifier.fillMaxSize()) { content() }
-            } else {
-                content()
-            }
-        } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (chapterError == null) CircularProgressIndicator(color = Color(palette.text))
-                else {
-                    Text(chapterError.orEmpty(), color = Color(palette.text))
-                    TextButton(onClick = { viewModel.retryChapter() }) { Text("重新加载") }
-                    if (chapterFailureKind == com.novelai.assistant.data.sf.SfFailureKind.AUTH) {
-                        Text("请返回菠萝包页登录账号", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
-                    } else if (chapterFailureKind == com.novelai.assistant.data.sf.SfFailureKind.SIGNATURE) {
-                        Text("这不是账号封禁提示。请检查设备日期与时间，稍后重试。", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                if (selectionMode) {
+                    SelectionContainer(modifier = Modifier.fillMaxSize()) { content() }
+                } else {
+                    content()
+                }
+            } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (chapterError == null) {
+                        CircularProgressIndicator(color = Color(palette.text))
+                    } else {
+                        Text(chapterError.orEmpty(), color = Color(palette.text))
+                        TextButton(onClick = { viewModel.retryChapter() }) { Text("重新加载") }
+                        if (chapterFailureKind == SfFailureKind.AUTH) {
+                            Text("请返回菠萝包页登录账号", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                        } else if (chapterFailureKind == SfFailureKind.SIGNATURE) {
+                            Text("这不是账号封禁提示。请检查设备日期与时间，稍后重试。", color = Color(palette.text), style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
-        }
         }
 
         // ---------- 顶栏（浮动液态玻璃岛） ----------
-        AnimatedVisibility(
+        ReaderTopBar(
             visible = chromeVisible && !tocOpen,
-            enter = slideInVertically(spring(stiffness = 400f)) { -it } + fadeIn(),
-            exit = slideOutVertically(spring(stiffness = 400f)) { -it } + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .padding(top = statusBarPad + 8.dp)
-                .padding(horizontal = 14.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(
-                        elevation = 12.dp,
-                        shape = RoundedCornerShape(26.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.16f),
-                        spotColor = Color.Black.copy(alpha = 0.24f)
-                    )
-                    .liquidGlass(
-                        state = readerHazeState,
-                        tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.86f),
-                        shape = RoundedCornerShape(26.dp),
-                        blurRadius = 28.dp,
-                        enableFlowSheen = false
-                    )
-            ) {
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    ) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = onChromeColor)
-                        }
-                        Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-                            Text(
-                                book?.title ?: "",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = secondaryColor,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                currentChapter?.title ?: "",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = onChromeColor,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        IconButton(onClick = { onOpenDetail?.invoke(bookId) ?: viewModel.openToc() }) {
-                            Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = "书籍详情", tint = onChromeColor)
-                        }
-                        // 夜间模式快捷切换
-                        IconButton(onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.toggleNightMode()
-                        }) {
-                            Icon(
-                                Icons.Rounded.DarkMode,
-                                contentDescription = "夜间模式",
-                                tint = if (isDarkReader) Color(0xFFFFD60A) else onChromeColor
-                            )
-                        }
-                        Box {
-                            IconButton(onClick = { showExportMenu = true }) {
-                                Icon(Icons.Rounded.MoreVert, contentDescription = "更多", tint = onChromeColor)
-                            }
-                            DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
-                                if (book?.sourceType == com.novelai.assistant.data.db.BookSourceType.BOLUOBAO) {
-                                    DropdownMenuItem(text = { Text("下载与导出（TXT / MD / EPUB）") }, onClick = { showExportMenu = false; sfToolsOpen = true })
-                                }
-                                DropdownMenuItem(
-                                    text = { Text(if (selectionMode) "关闭文字选择模式" else "文字选择模式（可复制）") },
-                                    onClick = {
-                                        showExportMenu = false
-                                        selectionMode = !selectionMode
-                                        if (selectionMode) viewModel.clearQuote()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("导出本章为 Markdown") },
-                                    enabled = currentChapter?.content?.isNotBlank() == true,
-                                    onClick = {
-                                        showExportMenu = false
-                                        exportMarkdown = true
-                                        exportLauncher.launch("${currentChapter?.title ?: "chapter"}.md")
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("导出本章为 TXT") },
-                                    enabled = currentChapter?.content?.isNotBlank() == true,
-                                    onClick = {
-                                        showExportMenu = false
-                                        exportMarkdown = false
-                                        exportLauncher.launch("${currentChapter?.title ?: "chapter"}.txt")
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    // 嵌入式晶体微光进度条
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.25.dp))
-                            .background(secondaryColor.copy(alpha = 0.20f))
-                    ) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth((chapters.size.coerceAtLeast(1)).let { total ->
-                                    ((chapterIndex + 1).coerceIn(1, total)).toFloat() / total
-                                })
-                                .fillMaxHeight()
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(accent.copy(alpha = 0.7f), accent)
-                                    )
-                                )
-                        )
-                    }
-                }
+            statusBarPad = statusBarPad,
+            hazeState = readerHazeState,
+            isDarkReader = isDarkReader,
+            palette = palette,
+            onChromeColor = onChromeColor,
+            secondaryColor = secondaryColor,
+            accent = accent,
+            bookTitle = book?.title ?: "",
+            chapterTitle = currentChapter?.title ?: "",
+            sourceType = book?.sourceType,
+            hasChapterContent = currentChapter?.content?.isNotBlank() == true,
+            chapterIndex = chapterIndex,
+            totalChapters = chapters.size,
+            selectionMode = selectionMode,
+            onBack = onBack,
+            onOpenDetailOrToc = { onOpenDetail?.invoke(bookId) ?: viewModel.openToc() },
+            onToggleNightMode = {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                viewModel.toggleNightMode()
+            },
+            onOpenSfTools = { sfToolsOpen = true },
+            onToggleSelectionMode = {
+                selectionMode = !selectionMode
+                if (selectionMode) viewModel.clearQuote()
+            },
+            onExportMarkdown = {
+                exportMarkdown = true
+                exportLauncher.launch("${currentChapter?.title ?: "chapter"}.md")
+            },
+            onExportTxt = {
+                exportMarkdown = false
+                exportLauncher.launch("${currentChapter?.title ?: "chapter"}.txt")
             }
-        }
+        )
 
         // ---------- 底栏（浮动液态玻璃控制岛） ----------
-        AnimatedVisibility(
+        ReaderBottomBar(
             visible = chromeVisible && !tocOpen,
-            enter = slideInVertically(spring(stiffness = 400f)) { it } + fadeIn(),
-            exit = slideOutVertically(spring(stiffness = 400f)) { it } + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(bottom = (navBarPad + 12.dp).coerceAtLeast(16.dp))
-                .padding(horizontal = 14.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(
-                        elevation = 14.dp,
-                        shape = RoundedCornerShape(26.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.16f),
-                        spotColor = Color.Black.copy(alpha = 0.25f)
-                    )
-                    .liquidGlass(
-                        state = readerHazeState,
-                        tint = if (isDarkReader) Color(0xFF14141E).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
-                        shape = RoundedCornerShape(26.dp),
-                        blurRadius = 28.dp,
-                        enableFlowSheen = isCurrentBookSpeaking
-                    )
-            ) {
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    // 听书控制胶囊（仅属于当前正在朗读的书籍）
-                    androidx.compose.animation.AnimatedVisibility(visible = activeSpeaking || activePaused) {
-                        Column {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                                    .background(Color(palette.text).copy(alpha = 0.08f), RoundedCornerShape(18.dp))
-                                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    if (ttsPaused) "已暂停 · 第 ${ttsPosition + 1} 段" else "朗读中 · 第 ${ttsPosition + 1} 段",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = onChromeColor,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                // 定时状态与设置按钮
-                                val timerActive = ttsTimerMode != com.novelai.assistant.ui.reader.TtsTimerMode.OFF
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (timerActive) accent.copy(alpha = 0.22f) else onChromeColor.copy(alpha = 0.08f),
-                                    border = if (timerActive) androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.6f)) else null,
-                                    modifier = Modifier.clickable { timerSheetOpen = true }
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Timer,
-                                            contentDescription = "定时",
-                                            tint = if (timerActive) accent else onChromeColor,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        val timerLabel = when {
-                                            ttsTimerRemainingSeconds != null -> formatRemaining(ttsTimerRemainingSeconds)
-                                            ttsTimerMode == com.novelai.assistant.ui.reader.TtsTimerMode.END_OF_CHAPTER -> "本章停"
-                                            else -> "定时"
-                                        }
-                                        Text(
-                                            timerLabel,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (timerActive) accent else onChromeColor
-                                        )
-                                    }
-                                }
-                                IconButton(onClick = {
-                                    if (ttsPaused) viewModel.resumeTts() else viewModel.pauseTts()
-                                }) {
-                                    Icon(
-                                        if (ttsPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                                        contentDescription = if (ttsPaused) "继续" else "暂停",
-                                        tint = onChromeColor,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                IconButton(onClick = { viewModel.toggleTts() }) {
-                                    Icon(
-                                        Icons.Rounded.Stop,
-                                        contentDescription = "停止朗读",
-                                        tint = onChromeColor,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                            // 语速调节
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    "语速",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = secondaryColor
-                                )
-                                listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { r ->
-                                    val selected = kotlin.math.abs(ttsSpeed - r) < 0.01f
-                                    Text(
-                                        if (r == 1.0f) "1x" else "${r}x",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (selected) accent else onChromeColor.copy(alpha = 0.75f),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(
-                                                if (selected) accent.copy(alpha = 0.18f) else Color.Transparent
-                                            )
-                                            .clickable { viewModel.setTtsSpeed(r) }
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 核心按钮栏
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ReaderBarAction(Icons.Rounded.Menu, "目录", onChromeColor) { viewModel.openToc() }
-                        ReaderBarAction(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "上一章", onChromeColor) {
-                            if (chapterIndex > 0) viewModel.setChapterIndex(chapterIndex - 1)
-                        }
-                        ReaderBarAction(
-                            if (isCurrentBookSpeaking) Icons.Rounded.Stop else Icons.Rounded.Headphones,
-                            "听书", if (isCurrentBookSpeaking) accent else onChromeColor
-                        ) {
-                            if (ttsReady) {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                checkNotificationPermission()
-                                viewModel.toggleTts(currentVisibleParaIndex)
-                            }
-                        }
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    currentChapter?.let { ch ->
-                                        onGenerate(viewModel.bookId, ch.id, "CONTINUATION")
-                                    }
-                                }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Rounded.AutoAwesome,
-                                contentDescription = "AI 续写",
-                                tint = accent,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Text(
-                                "AI 续写",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = accent
-                            )
-                        }
-                        ReaderBarAction(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "下一章", onChromeColor) {
-                            if (chapterIndex < chapters.lastIndex) viewModel.setChapterIndex(chapterIndex + 1)
-                        }
-                        ReaderBarAction(Icons.Rounded.Tune, "设置", onChromeColor) { viewModel.openSettings() }
-                    }
+            navBarPad = navBarPad,
+            hazeState = readerHazeState,
+            isDarkReader = isDarkReader,
+            palette = palette,
+            onChromeColor = onChromeColor,
+            secondaryColor = secondaryColor,
+            accent = accent,
+            isCurrentBookSpeaking = isCurrentBookSpeaking,
+            activeSpeaking = activeSpeaking,
+            activePaused = activePaused,
+            activePosition = activePosition,
+            ttsReady = ttsReady,
+            ttsSpeed = ttsSpeed,
+            ttsTimerMode = ttsTimerMode,
+            ttsTimerRemainingSeconds = ttsTimerRemainingSeconds,
+            onOpenTimer = { timerSheetOpen = true },
+            onResumeTts = { viewModel.resumeTts() },
+            onPauseTts = { viewModel.pauseTts() },
+            onStopOrToggleTts = { viewModel.toggleTts() },
+            onSetTtsSpeed = { viewModel.setTtsSpeed(it) },
+            onOpenToc = { viewModel.openToc() },
+            onPrevChapter = { if (chapterIndex > 0) viewModel.setChapterIndex(chapterIndex - 1) },
+            onToggleTts = {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                checkNotificationPermission()
+                viewModel.toggleTts(currentVisibleParaIndex)
+            },
+            onGenerate = {
+                currentChapter?.let { ch ->
+                    onGenerate(viewModel.bookId, ch.id, "CONTINUATION")
                 }
-            }
-        }
+            },
+            onNextChapter = { if (chapterIndex < chapters.lastIndex) viewModel.setChapterIndex(chapterIndex + 1) },
+            onOpenSettings = { viewModel.openSettings() }
+        )
 
         // ---------- 划线即问（浮动液态玻璃胶囊） ----------
         val quoteBottomPadding = when {
-            chromeVisible && (ttsSpeaking || ttsPaused) -> navBarPad + 180.dp
+            chromeVisible && (activeSpeaking || activePaused) -> navBarPad + 180.dp
             chromeVisible -> navBarPad + 104.dp
-            ttsSpeaking || ttsPaused -> navBarPad + 104.dp
+            activeSpeaking || activePaused -> navBarPad + 104.dp
             else -> navBarPad + 28.dp
         }
-        AnimatedVisibility(
-            visible = quotedText != null,
-            enter = slideInVertically(spring(stiffness = 380f)) { it } + fadeIn(),
-            exit = slideOutVertically(spring(stiffness = 380f)) { it } + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(
-                    bottom = quoteBottomPadding,
-                    start = 14.dp,
-                    end = 14.dp
-                )
-        ) {
-            Box(
-                modifier = Modifier
-                    .shadow(
-                        elevation = 12.dp,
-                        shape = RoundedCornerShape(24.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.16f),
-                        spotColor = Color.Black.copy(alpha = 0.25f)
-                    )
-                    .liquidGlass(
-                        state = readerHazeState,
-                        tint = if (isDarkReader) Color(0xFF161622).copy(alpha = 0.85f) else Color(palette.chrome).copy(alpha = 0.88f),
-                        shape = RoundedCornerShape(24.dp),
-                        blurRadius = 24.dp,
-                        enableFlowSheen = false
-                    )
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                // 用 FlowRow + 定宽上限：横向滚动会让 Row 按不限宽测量，
-                // 外层 Surface 随之撑出屏幕，末尾的“本章间贴”被推到不可点区域。
-                FlowRow(
-                    Modifier.fillMaxWidth(),
-                    maxItemsInEachRow = 3,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    QuoteChip("从此处朗读", Icons.Rounded.PlayArrow, accent) {
-                        checkNotificationPermission()
-                        viewModel.playFromQuotedParagraph()
-                    }
-                    QuoteChip("解析深意", Icons.Rounded.AutoAwesome, MaterialTheme.colorScheme.primary) {
-                        val text = quotedText ?: ""
-                        viewModel.clearQuote()
-                        onAsk(viewModel.bookId, text, "解析深意")
-                    }
-                    QuoteChip("情绪总结", Icons.Rounded.Tune, MaterialTheme.colorScheme.secondary) {
-                        val text = quotedText ?: ""
-                        viewModel.clearQuote()
-                        onAsk(viewModel.bookId, text, "情绪总结")
-                    }
-                    QuoteChip("AI吐槽", Icons.Rounded.AutoAwesome, Color(0xFFE91E63)) {
-                        val text = quotedText ?: ""
-                        viewModel.clearQuote()
-                        onAsk(viewModel.bookId, text, "AI吐槽")
-                    }
-                    if (book?.sourceType == com.novelai.assistant.data.db.BookSourceType.BOLUOBAO) {
-                        QuoteChip("本章间贴", Icons.Rounded.Forum, Color(0xFFE91E63)) {
-                            val quote = quotedText.orEmpty()
-                            val row = viewModel.quotedParaIndex.value
-                            viewModel.clearQuote()
-                            viewModel.openParagraphComments(quote = quote, row = row)
-                        }
-                    }
-                    QuoteChip("选段伴读", Icons.Rounded.AutoAwesome, Color(0xFF7C4DFF)) {
-                        val text = quotedText ?: ""
-                        viewModel.clearQuote()
-                        onAsk(viewModel.bookId, text, "")
-                    }
-                    IconButton(
-                        onClick = { viewModel.clearQuote() },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.Close,
-                            contentDescription = "取消",
-                            modifier = Modifier.size(16.dp),
-                            tint = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
+        ReaderQuoteBar(
+            quotedText = quotedText,
+            bottomPadding = quoteBottomPadding,
+            hazeState = readerHazeState,
+            isDarkReader = isDarkReader,
+            isEffectiveDark = isEffectiveDark,
+            palette = palette,
+            accent = accent,
+            isSfacgBook = book?.sourceType == BookSourceType.BOLUOBAO,
+            onPlayFromHere = {
+                checkNotificationPermission()
+                viewModel.playFromQuotedParagraph()
+            },
+            onAskAction = { text, action ->
+                viewModel.clearQuote()
+                onAsk(viewModel.bookId, text, action)
+            },
+            onOpenComments = { quote ->
+                val row = viewModel.quotedParaIndex.value
+                viewModel.clearQuote()
+                viewModel.openParagraphComments(quote = quote, row = row)
+            },
+            onDismiss = { viewModel.clearQuote() }
+        )
 
         // ---------- 文字选择模式底部提示浮岛 ----------
-        AnimatedVisibility(
+        ReaderSelectionHintBar(
             visible = selectionMode && quotedText == null,
-            enter = slideInVertically(spring(stiffness = 380f)) { it } + fadeIn(),
-            exit = slideOutVertically(spring(stiffness = 380f)) { it } + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = (navBarPad + 16.dp).coerceAtLeast(20.dp), start = 14.dp, end = 14.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = if (isDarkReader) Color(0xFF1E1E2A) else MaterialTheme.colorScheme.surfaceContainerHigh,
-                shadowElevation = 8.dp,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (isDarkReader) Color(0xFF383846) else MaterialTheme.colorScheme.outlineVariant
-                )
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "文字选择模式中（长按拖拽光标选词）",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (isDarkReader) Color.White else MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(Modifier.weight(1f))
-                    TextButton(
-                        onClick = {
-                            selectionMode = false
-                            viewModel.clearQuote()
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Text("退出选择", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                    }
-                }
+            navBarPad = navBarPad,
+            isDarkReader = isDarkReader,
+            onExitSelectionMode = {
+                selectionMode = false
+                viewModel.clearQuote()
             }
-        }
+        )
 
         if (paragraphCommentsOpen) {
             ParagraphCommentsSheet(
@@ -882,276 +466,72 @@ fun ReaderScreen(
         }
 
         // ---------- 目录抽屉 ----------
-        AnimatedVisibility(
+        ReaderTocDrawer(
             visible = tocOpen,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.matchParentSize()
-        ) {
-            Box(Modifier.fillMaxSize()) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .pointerInput(Unit) { detectTapGestures { viewModel.closeToc() } }
-                )
-                AnimatedVisibility(
-                    visible = true,
-                    enter = slideInHorizontally(spring(dampingRatio = 0.9f, stiffness = 380f)) { -it },
-                    exit = slideOutHorizontally { -it },
-                    modifier = Modifier.align(Alignment.CenterStart)
-                ) {
-                    Surface(
-                        color = bgColor,
-                        contentColor = Color(palette.text),
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.84f)
-                    ) {
-                        Column(Modifier.padding(top = statusBarPad + 8.dp)) {
-                            Text(
-                                "目录 · ${chapters.size} 章",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = if (isEffectiveDark) Color.White else Color(palette.text),
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                            )
-                            SegmentedControl(
-                                options = TocFilter.entries.toList(),
-                                selected = tocFilter,
-                                labelOf = { it.label },
-                                onSelect = { viewModel.setTocFilter(it) },
-                                containerColor = if (isEffectiveDark) Color(0xFF22222E) else Color(palette.chrome).copy(alpha = 0.6f),
-                                activeColor = if (isEffectiveDark) Color(0xFF323242) else Color.White,
-                                selectedTextColor = if (isEffectiveDark) Color.White else Color(palette.text),
-                                unselectedTextColor = if (isEffectiveDark) Color(0xFFA0A0AC) else Color(palette.secondaryText),
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            LazyColumn(state = tocListState, modifier = Modifier.weight(1f)) {
-                                itemsIndexed(tocItems, key = { _, item -> item.chapter.id }) { _, item ->
-                                    val isCurrent = item.chapter.id == currentChapter?.id
-                                    Row(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .background(
-                                                if (isCurrent) accent.copy(alpha = 0.16f)
-                                                else Color.Transparent
-                                            )
-                                            .combinedClickable(
-                                                onClick = {
-                                                    viewModel.setChapterIndex(item.chapter.chapterIndex)
-                                                    viewModel.closeToc()
-                                                },
-                                                onLongClick = {
-                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    actionChapter = item.chapter
-                                                }
-                                            )
-                                            .padding(horizontal = 20.dp, vertical = 11.dp)
-                                            .padding(start = (item.depth * 16).dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        OriginBadge(item.chapter.originType.name)
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(
-                                            item.chapter.title,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = if (isCurrent) accent
-                                            else if (isEffectiveDark) Color(0xFFDCDCE4)
-                                            else Color(palette.text),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(navBarPad))
-                        }
-                    }
-                }
+            bgColor = bgColor,
+            palette = palette,
+            isEffectiveDark = isEffectiveDark,
+            accent = accent,
+            statusBarPad = statusBarPad,
+            navBarPad = navBarPad,
+            totalChapters = chapters.size,
+            tocFilter = tocFilter,
+            tocItems = tocItems,
+            currentChapterId = currentChapter?.id,
+            tocListState = tocListState,
+            onDismiss = { viewModel.closeToc() },
+            onSelectFilter = { viewModel.setTocFilter(it) },
+            onSelectChapter = { ch ->
+                viewModel.setChapterIndex(ch.chapterIndex)
+                viewModel.closeToc()
+            },
+            onLongClickChapter = { ch ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                actionChapter = ch
             }
-        }
+        )
 
         // ---------- 目录长按操作底板与弹窗 ----------
         actionChapter?.let { ch ->
-            NovelAITheme(darkTheme = isEffectiveDark) {
-                ModalBottomSheet(
-                    onDismissRequest = { actionChapter = null },
-                    containerColor = if (isEffectiveDark) Color(0xFF181820) else MaterialTheme.colorScheme.surfaceContainerLow,
-                    contentColor = if (isEffectiveDark) Color(0xFFE8E8EE) else MaterialTheme.colorScheme.onSurface,
-                    dragHandle = {
-                        BottomSheetDefaults.DragHandle(
-                            color = if (isEffectiveDark) Color(0xFF5A5A66) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                    }
-                ) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp)
-                            .padding(bottom = 32.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        ) {
-                            OriginBadge(ch.originType.name)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                ch.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = if (isEffectiveDark) Color(0xFF252532) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val target = actionChapter
-                                    actionChapter = null
-                                    if (target != null) {
-                                        renameChapterTarget = target
-                                        renameTitleDraft = target.title
-                                    }
-                                }
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Edit,
-                                    contentDescription = null,
-                                    tint = if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    "重命名章节",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = if (isEffectiveDark) Color(0xFF361820) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val target = actionChapter
-                                    actionChapter = null
-                                    confirmDeleteChapter = target
-                                }
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Delete,
-                                    contentDescription = null,
-                                    tint = if (isEffectiveDark) Color(0xFFFF6B81) else MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    "删除章节",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = if (isEffectiveDark) Color(0xFFFF6B81) else MaterialTheme.colorScheme.error
-                                )
-                            }
-                        }
-                    }
+            ChapterActionSheet(
+                chapter = ch,
+                isEffectiveDark = isEffectiveDark,
+                onDismiss = { actionChapter = null },
+                onRename = { target ->
+                    actionChapter = null
+                    renameChapterTarget = target
+                    renameTitleDraft = target.title
+                },
+                onDelete = { target ->
+                    actionChapter = null
+                    confirmDeleteChapter = target
                 }
-            }
+            )
         }
 
         renameChapterTarget?.let { target ->
-            NovelAITheme(darkTheme = isEffectiveDark) {
-                AlertDialog(
-                    onDismissRequest = { renameChapterTarget = null },
-                    containerColor = if (isEffectiveDark) Color(0xFF20202A) else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    titleContentColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                    textContentColor = if (isEffectiveDark) Color(0xFFD0D0D8) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    title = { Text("重命名章节") },
-                    text = {
-                        OutlinedTextField(
-                            value = renameTitleDraft,
-                            onValueChange = { renameTitleDraft = it },
-                            label = { Text("章节名称") },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                                unfocusedTextColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                                focusedBorderColor = if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = if (isEffectiveDark) Color(0xFF4A4A58) else MaterialTheme.colorScheme.outline,
-                                focusedLabelColor = if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                                unfocusedLabelColor = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                viewModel.renameChapter(target.id, renameTitleDraft)
-                                renameChapterTarget = null
-                            },
-                            enabled = renameTitleDraft.isNotBlank()
-                        ) {
-                            Text(
-                                "保存",
-                                color = if (renameTitleDraft.isNotBlank()) {
-                                    if (isEffectiveDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary
-                                } else Color.Gray
-                            )
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { renameChapterTarget = null }) {
-                            Text("取消", color = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                )
-            }
+            RenameChapterDialog(
+                draft = renameTitleDraft,
+                isEffectiveDark = isEffectiveDark,
+                onDraftChange = { renameTitleDraft = it },
+                onConfirm = {
+                    viewModel.renameChapter(target.id, renameTitleDraft)
+                    renameChapterTarget = null
+                },
+                onDismiss = { renameChapterTarget = null }
+            )
         }
 
         confirmDeleteChapter?.let { target ->
-            NovelAITheme(darkTheme = isEffectiveDark) {
-                AlertDialog(
-                    onDismissRequest = { confirmDeleteChapter = null },
-                    containerColor = if (isEffectiveDark) Color(0xFF20202A) else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    titleContentColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                    textContentColor = if (isEffectiveDark) Color(0xFFD0D0D8) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    title = { Text("删除章节《${target.title}》？") },
-                    text = { Text("该章节内容将被永久删除，此操作无法撤销。") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                viewModel.deleteChapter(target.id)
-                                confirmDeleteChapter = null
-                            }
-                        ) {
-                            Text("删除", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { confirmDeleteChapter = null }) {
-                            Text("取消", color = if (isEffectiveDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                )
-            }
+            DeleteChapterConfirmDialog(
+                chapterTitle = target.title,
+                isEffectiveDark = isEffectiveDark,
+                onConfirm = {
+                    viewModel.deleteChapter(target.id)
+                    confirmDeleteChapter = null
+                },
+                onDismiss = { confirmDeleteChapter = null }
+            )
         }
 
         // ---------- 阅读设置 ----------
@@ -1169,23 +549,29 @@ fun ReaderScreen(
                 ) {
                     ReaderSettingsSheet(
                         settings = settings,
-                        viewModel = viewModel,
                         brightness = brightness,
                         isDark = isEffectiveDark,
                         timerMode = ttsTimerMode,
                         timerRemainingSeconds = ttsTimerRemainingSeconds,
+                        onBrightnessChange = { brightness = it },
+                        onFontSizeChange = viewModel::setFontSize,
+                        onLineSpacingChange = viewModel::setLineSpacing,
+                        onHorizontalPaddingChange = viewModel::setHorizontalPadding,
+                        onParagraphSpacingChange = viewModel::setParagraphSpacing,
+                        onBgThemeChange = viewModel::setBgTheme,
+                        onSerifChange = viewModel::setSerif,
+                        onPageModeChange = viewModel::setPageMode,
                         onOpenTimer = {
                             viewModel.closeSettings()
                             timerSheetOpen = true
-                        },
-                        onBrightnessChange = { brightness = it }
+                        }
                     )
                 }
             }
         }
 
         if (sfToolsOpen) {
-            com.novelai.assistant.ui.discover.SfBookToolsDialog(bookId, chapterIndex.coerceAtLeast(0), { sfToolsOpen = false })
+            SfBookToolsDialog(bookId, chapterIndex.coerceAtLeast(0), { sfToolsOpen = false })
         }
 
         // ---------- 听书定时面板 ----------
@@ -1198,1158 +584,6 @@ fun ReaderScreen(
                     onSelectMode = { viewModel.setTtsTimerMode(it) },
                     onDismiss = { timerSheetOpen = false }
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuoteChip(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    color: Color,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
-        onClick = onClick
-    ) {
-        Row(
-            Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            if (icon != null) {
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(15.dp))
-            }
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = color,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ParagraphCommentsSheet(
-    comments: List<com.novelai.assistant.data.sf.SfParagraphComment>,
-    loading: Boolean,
-    loadingMore: Boolean,
-    error: String?,
-    sort: String,
-    paragraph: String,
-    chapterTitle: String,
-    expandedReplies: Set<String>,
-    replyThreads: Map<String, ReplyThread>,
-    onRetryReplies: (String) -> Unit,
-    onSort: (String) -> Unit,
-    onLoadMore: () -> Unit,
-    onToggleReplies: (String) -> Unit,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss, dragHandle = { BottomSheetDefaults.DragHandle() }) {
-        Column(Modifier.fillMaxWidth().heightIn(min = 360.dp, max = 680.dp)) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column(Modifier.weight(1f)) {
-                        Text("本章间贴", style = MaterialTheme.typography.titleLarge)
-                        if (chapterTitle.isNotBlank()) Text(chapterTitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    }
-                    IconButton(onDismiss) { Icon(Icons.Rounded.Close, "关闭") }
-                }
-                // 引文与排序并排：引文占剩余宽度，排序贴右下，避免整行留白
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    if (paragraph.isNotBlank()) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    Modifier
-                                        .width(3.dp)
-                                        .height(14.dp)
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = .55f),
-                                            androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
-                                )
-                                Text(paragraph, maxLines = 2,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            }
-                        }
-                    } else Spacer(Modifier.weight(1f))
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
-                    ) {
-                        Row(Modifier.padding(3.dp)) {
-                            listOf("hot" to "最热", "new" to "最新").forEach { (value, label) ->
-                                val selected = sort == value
-                                Surface(
-                                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                    else Color.Transparent,
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
-                                    modifier = Modifier.clickable {
-                                        if (!selected) onSort(value)
-                                    }
-                                ) {
-                                    Text(
-                                        label,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            HorizontalDivider(Modifier.padding(top = 6.dp))
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp))
-            if (error != null) {
-                Text(error, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error)
-                TextButton(onRetry, Modifier.padding(horizontal = 12.dp)) { Text("重试") }
-            } else if (!loading && comments.isEmpty()) {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text("本章暂无间贴",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    itemsIndexed(comments, key = { _, comment -> comment.id }) { index, comment ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.Top) {
-                            SfAvatar(comment.avatar, comment.displayName, Modifier.size(36.dp))
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(comment.displayName, style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Medium)
-                                    if (comment.roleName.isNotBlank()) Text(comment.roleName,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary)
-                                }
-                                Text(comment.content, style = MaterialTheme.typography.bodyMedium)
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(comment.createTime, style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline)
-                                    if (comment.replyNum > 0 || comment.replies.isNotEmpty()) {
-                                        TextButton(
-                                            onClick = { onToggleReplies(comment.id) },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                            modifier = Modifier.heightIn(min = 36.dp)
-                                        ) {
-                                            Text(
-                                                if (comment.id in expandedReplies) "收起回复"
-                                                else "查看回复（${comment.replyNum}）",
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
-                                        }
-                                    } else {
-                                        Text("赞 ${comment.favCount}" + if (comment.replyNum > 0) " · 回复 ${comment.replyNum}" else "",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.outline)
-                                    }
-                                }
-                                if (comment.id in expandedReplies) {
-                                    val thread = replyThreads[comment.id] ?: ReplyThread()
-                                    Column(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 8.dp, top = 2.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        if (thread.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                                        thread.error?.let { message ->
-                                            Text(message, color = MaterialTheme.colorScheme.error)
-                                            TextButton({ onRetryReplies(comment.id) }) { Text("重试回复") }
-                                        }
-                                        thread.replies.forEach { reply ->
-                                            Surface(
-                                                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
-                                            ) {
-                                                Row(
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(10.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                    verticalAlignment = Alignment.Top
-                                                ) {
-                                                    SfAvatar(reply.avatar, reply.displayName, Modifier.size(26.dp))
-                                                    Column(Modifier.weight(1f),
-                                                        verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                            verticalAlignment = Alignment.CenterVertically) {
-                                                            Text(reply.displayName,
-                                                                style = MaterialTheme.typography.labelMedium,
-                                                                fontWeight = FontWeight.Medium)
-                                                            if (reply.roleName.isNotBlank()) Text(reply.roleName,
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                color = MaterialTheme.colorScheme.primary)
-                                                        }
-                                                        Text(reply.content,
-                                                            style = MaterialTheme.typography.bodySmall)
-                                                        Text(reply.createTime,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.outline)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        if (thread.loaded) {
-                                            Text(
-                                                "已显示 ${thread.replies.size} 条可见回复",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (index < comments.lastIndex) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
-                        }
-                    }
-                    if (comments.size >= 20 && !loadingMore) {
-                        item("load-more") {
-                            TextButton(
-                                onClick = { onLoadMore() },
-                                enabled = !loadingMore,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(if (loadingMore) "正在加载更多…" else "加载更多间贴")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.ReaderBarAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    tint: Color,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .weight(1f)
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp)
-    ) {
-        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
-    }
-}
-
-/**
- * A quiet, persistent affordance beside paragraphs that have discussions.
- * Zero-count rows remain visually empty, so local/plain chapters do not gain
- * noise or misleading controls.
- */
-@Composable
-private fun InlineTsukkomiMarker(
-    count: Int,
-    dark: Boolean,
-    onOpen: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (count <= 0) return
-    val accent = if (dark) Color(0xFFFF8AA4) else Color(0xFFD94F70)
-    Box(
-        modifier = modifier
-            .width(26.dp)
-            .heightIn(min = 32.dp)
-            .clickable(onClick = onOpen)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "$count 条段落吐槽，点击查看"
-            },
-        contentAlignment = Alignment.TopEnd
-    ) {
-        Icon(
-            Icons.Rounded.Forum,
-            contentDescription = null,
-            tint = accent.copy(alpha = 0.82f),
-            modifier = Modifier
-                .padding(top = 5.dp)
-                .size(17.dp)
-        )
-        Badge(
-            containerColor = accent,
-            contentColor = Color.White,
-            modifier = Modifier.semantics { contentDescription = "" }
-        ) {
-            Text(
-                if (count > 99) "99+" else count.toString(),
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                modifier = Modifier.semantics { contentDescription = "" }
-            )
-        }
-    }
-}
-
-/** 翻页模式 */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun PagedContent(
-    chapterId: String,
-    readPosition: () -> ReadingAnchor,
-    savePosition: (ReadingAnchor) -> Unit,
-    paragraphs: List<String>,
-    settings: ReadingSettings,
-    palette: com.novelai.assistant.ui.theme.ReaderPalette,
-    statusBarPad: androidx.compose.ui.unit.Dp,
-    navBarPad: androidx.compose.ui.unit.Dp,
-    chromeVisible: Boolean,
-    ttsSpeaking: Boolean,
-    ttsPaused: Boolean,
-    ttsPosition: Int,
-    isDarkReader: Boolean,
-    onToggleChrome: () -> Unit,
-    onQuote: (String, Int) -> Unit,
-    commentCounts: Map<Int, Int>,
-    onOpenComments: (String, Int) -> Unit,
-    onPageTurn: () -> Unit,
-    onVisibleParaChange: (Int) -> Unit,
-    onNextChapter: () -> Unit,
-    onPrevChapter: () -> Unit,
-    hasNextChapter: Boolean,
-    hasPrevChapter: Boolean,
-    selectionMode: Boolean,
-    targetPageProvider: () -> Int?
-) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
-
-    val readerStyle = TextStyle(
-        fontSize = settings.fontSizeSp.sp,
-        lineHeight = (settings.fontSizeSp * settings.lineSpacingMultiplier).sp,
-        fontFamily = readerFontFamily(settings.serifFont),
-        color = Color(palette.text)
-    )
-    val hPadPx = with(density) { settings.horizontalPaddingDp.dp.roundToPx() }
-    val paraSpacingPx = with(density) { settings.paragraphSpacingDp.dp.roundToPx() }
-
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val widthPx = constraints.maxWidth - hPadPx * 2
-        val chromeTopPx = with(density) { (statusBarPad + 72.dp).roundToPx() }
-        val chromeBottomPx = with(density) { (navBarPad + 64.dp).roundToPx() }
-        val heightPx = constraints.maxHeight - chromeTopPx - chromeBottomPx
-
-        val pages = remember(
-            chapterId, paragraphs, settings.fontSizeSp, settings.lineSpacingMultiplier,
-            settings.serifFont, widthPx, heightPx, settings.paragraphSpacingDp
-        ) {
-            Paginator.paginate(paragraphs, textMeasurer, readerStyle, widthPx - with(density) { 28.dp.roundToPx() }, heightPx, paraSpacingPx)
-        }
-
-        val pagerState = rememberPagerState(pageCount = { pages.size })
-
-        var positionReady by remember(chapterId, pages) { mutableStateOf(false) }
-        LaunchedEffect(chapterId, pages) {
-            val anchor = readPosition()
-            val target = targetPageProvider()
-            if (target == -1) {
-                pagerState.scrollToPage(pages.lastIndex.coerceAtLeast(0))
-            } else if (target != null && target >= 0) {
-                pagerState.scrollToPage(target.coerceIn(0, pages.lastIndex.coerceAtLeast(0)))
-            } else {
-                val restored = Paginator.pageForAnchor(pages, anchor)
-                pagerState.scrollToPage(restored)
-            }
-            positionReady = true
-        }
-
-        LaunchedEffect(pagerState) {
-            snapshotFlow { pagerState.currentPage }
-                .distinctUntilChanged()
-                .collect { onPageTurn() }
-        }
-
-        // 通知当前页起始段落（供听书从当前页起播）
-        LaunchedEffect(pagerState.currentPage, pages, positionReady) {
-            if (!positionReady) return@LaunchedEffect
-            pages.getOrNull(pagerState.currentPage)?.fragments?.firstOrNull()?.let {
-                savePosition(ReadingAnchor(it.paraIndex, it.startOffset))
-            }
-            val firstPara = pages.getOrNull(pagerState.currentPage)?.fragments?.firstOrNull()?.paraIndex ?: 0
-            onVisibleParaChange(firstPara)
-        }
-
-        // 听书进度驱动翻页
-        LaunchedEffect(ttsPosition, ttsSpeaking, ttsPaused) {
-            if ((ttsSpeaking || ttsPaused) && ttsPosition >= 0) {
-                val targetPage = pages.indexOfFirst { page ->
-                    page.fragments.any { it.paraIndex == ttsPosition }
-                }
-                if (targetPage >= 0 && targetPage != pagerState.currentPage) {
-                    pagerState.animateScrollToPage(targetPage)
-                }
-            }
-        }
-
-        fun handleTap(screenX: Float, screenWidth: Float) {
-            if (chromeVisible) {
-                onToggleChrome()
-            } else {
-                when {
-                    screenX < screenWidth * 0.33f -> {
-                        // 左侧点击 -> 上一页 / 上一章
-                        if (pagerState.currentPage > 0) {
-                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
-                        } else if (hasPrevChapter) {
-                            onPrevChapter()
-                        } else {
-                            Toast.makeText(context, "已经是第一章了", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    screenX > screenWidth * 0.67f -> {
-                        // 右侧点击 -> 下一页 / 下一章
-                        if (pagerState.currentPage < pages.lastIndex) {
-                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                        } else if (hasNextChapter) {
-                            onNextChapter()
-                        } else {
-                            Toast.makeText(context, "已经是最后一章了", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    else -> {
-                        // 中间点击 -> 呼出/隐藏菜单
-                        onToggleChrome()
-                    }
-                }
-            }
-        }
-
-        val swipeModifier = if (selectionMode) Modifier else Modifier.pointerInput(
-            chapterId, pages.size, hasNextChapter, hasPrevChapter, pagerState.currentPage
-        ) {
-            awaitPointerEventScope {
-                while (true) {
-                    val down = awaitFirstDown(pass = PointerEventPass.Initial, requireUnconsumed = false)
-                    var totalDx = 0f
-                    var totalDy = 0f
-                    val pointerId = down.id
-                    val isAtEnd = pagerState.currentPage >= pages.lastIndex
-                    val isAtStart = pagerState.currentPage == 0
-
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val dragChange = event.changes.firstOrNull { it.id == pointerId } ?: break
-                        if (!dragChange.pressed) {
-                            val threshold = 50.dp.toPx()
-                            val isHorizontalSwipe = kotlin.math.abs(totalDx) > threshold &&
-                                    kotlin.math.abs(totalDx) > kotlin.math.abs(totalDy) * 1.3f
-                            if (isHorizontalSwipe) {
-                                if (totalDx < -threshold && isAtEnd) {
-                                    if (hasNextChapter) {
-                                        onNextChapter()
-                                    } else {
-                                        Toast.makeText(context, "已经是最后一章了", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else if (totalDx > threshold && isAtStart) {
-                                    if (hasPrevChapter) {
-                                        onPrevChapter()
-                                    } else {
-                                        Toast.makeText(context, "已经是第一章了", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                            break
-                        }
-                        val delta = dragChange.position - dragChange.previousPosition
-                        totalDx += delta.x
-                        totalDy += delta.y
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(swipeModifier)
-        ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { pageIndex ->
-                val page = pages.getOrNull(pageIndex) ?: return@HorizontalPager
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pages.size, hasNextChapter, hasPrevChapter) {
-                            detectTapGestures(
-                                onTap = { offset ->
-                                    val screenX = offset.x
-                                    val screenWidth = size.width.toFloat()
-                                    if (!selectionMode) {
-                                        handleTap(screenX, screenWidth)
-                                    } else {
-                                        // 选择模式下点击屏幕中央区域依然可呼出/收起控制栏，防止控制菜单唤醒失效
-                                        if (screenX in (screenWidth * 0.33f)..(screenWidth * 0.67f)) {
-                                            handleTap(screenX, screenWidth)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                ) {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .padding(
-                                horizontal = settings.horizontalPaddingDp.dp,
-                                vertical = 0.dp
-                            )
-                            .padding(top = statusBarPad + 72.dp, bottom = navBarPad + 64.dp)
-                    ) {
-                        var lastParaIndex = -1
-                        page.fragments.forEach { frag ->
-                            if (lastParaIndex != -1 && frag.paraIndex != lastParaIndex) {
-                                Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
-                            }
-                            lastParaIndex = frag.paraIndex
-                            val isTtsSpeakingThis = (ttsSpeaking || ttsPaused) && frag.paraIndex == ttsPosition
-                            val highlightBg = if (isTtsSpeakingThis) {
-                                if (isDarkReader) Color(0xFF9A97FF).copy(alpha = 0.22f)
-                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            } else Color.Transparent
-
-                            val textModifier = if (selectionMode) {
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(highlightBg, MaterialTheme.shapes.small)
-                            } else {
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(highlightBg, MaterialTheme.shapes.small)
-                                    .pointerInput(selectionMode, chromeVisible, pagerState.currentPage, pages.size, hasNextChapter, hasPrevChapter) {
-                                        detectTapGestures(
-                                            onLongPress = { onQuote(paragraphs[frag.paraIndex], frag.paraIndex) },
-                                            onTap = { offset ->
-                                                val screenX = offset.x + with(density) { settings.horizontalPaddingDp.dp.toPx() }
-                                                val screenWidth = size.width + with(density) { (settings.horizontalPaddingDp * 2).dp.toPx() }
-                                                handleTap(screenX, screenWidth)
-                                            }
-                                        )
-                                    }
-                            }
-                            val markerCount = commentCounts[frag.paraIndex] ?: 0
-                            val illustration = ReaderIllustration.parse(frag.text)
-                            if (illustration != null) {
-                                Box(Modifier.fillMaxWidth().height(with(density) { heightPx.toDp() })) {
-                                    ReaderIllustrationView(illustration, Modifier.fillMaxSize().padding(end = 28.dp))
-                                    InlineTsukkomiMarker(markerCount, isDarkReader,
-                                        { onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex) }, Modifier.align(Alignment.TopEnd))
-                                }
-                            } else Box(Modifier.fillMaxWidth()) {
-                                Text(
-                                    text = frag.text,
-                                    style = readerStyle,
-                                    modifier = textModifier.padding(end = 28.dp)
-                                )
-                                if (commentCounts[frag.paraIndex] ?: 0 > 0) {
-                                    InlineTsukkomiMarker(
-                                        count = commentCounts[frag.paraIndex] ?: 0,
-                                        dark = isDarkReader,
-                                        onOpen = {
-                                            onOpenComments(paragraphs[frag.paraIndex], frag.paraIndex)
-                                        },
-                                        modifier = Modifier.align(Alignment.TopEnd)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 页码
-            Text(
-                "${pagerState.currentPage + 1} / ${pages.size}",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(palette.secondaryText),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = navBarPad + 40.dp)
-            )
-        }
-    }
-}
-
-/** 滚动模式 */
-@Composable
-private fun ScrollContent(
-    chapterId: String,
-    readPosition: () -> ReadingAnchor,
-    savePosition: (ReadingAnchor) -> Unit,
-    paragraphs: List<String>,
-    settings: ReadingSettings,
-    palette: com.novelai.assistant.ui.theme.ReaderPalette,
-    statusBarPad: androidx.compose.ui.unit.Dp,
-    navBarPad: androidx.compose.ui.unit.Dp,
-    ttsSpeaking: Boolean,
-    ttsPaused: Boolean,
-    ttsPosition: Int,
-    isDarkReader: Boolean,
-    onToggleChrome: () -> Unit,
-    onQuote: (String, Int) -> Unit,
-    commentCounts: Map<Int, Int>,
-    onOpenComments: (String, Int) -> Unit,
-    onProgress: () -> Unit,
-    onVisibleParaChange: (Int) -> Unit,
-    selectionMode: Boolean
-) {
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(chapterId, paragraphs) {
-        val anchor = readPosition()
-        listState.scrollToItem(anchor.paragraph.coerceIn(0, paragraphs.lastIndex.coerceAtLeast(0)), anchor.scroll)
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .distinctUntilChanged().collect { (index, offset) ->
-                savePosition(ReadingAnchor(index, scroll = offset))
-                onProgress()
-                onVisibleParaChange(index)
-            }
-    }
-
-    LaunchedEffect(ttsPosition, ttsSpeaking, ttsPaused) {
-        if ((ttsSpeaking || ttsPaused) && ttsPosition in paragraphs.indices) {
-            listState.animateScrollToItem(ttsPosition)
-        }
-    }
-
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(
-            start = settings.horizontalPaddingDp.dp,
-            end = settings.horizontalPaddingDp.dp,
-            top = statusBarPad + 76.dp,
-            bottom = navBarPad + 72.dp
-        ),
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) { detectTapGestures(onTap = { onToggleChrome() }) }
-    ) {
-        itemsIndexed(paragraphs) { index, para ->
-            if (para.isBlank()) {
-                Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
-                return@itemsIndexed
-            }
-            val isTtsSpeakingThis = (ttsSpeaking || ttsPaused) && index == ttsPosition
-            val highlightBg = if (isTtsSpeakingThis) {
-                if (isDarkReader) Color(0xFF9A97FF).copy(alpha = 0.22f)
-                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            } else Color.Transparent
-
-            ParagraphText(
-                text = para,
-                style = TextStyle(
-                    fontSize = settings.fontSizeSp.sp,
-                    lineHeight = (settings.fontSizeSp * settings.lineSpacingMultiplier).sp,
-                    fontFamily = readerFontFamily(settings.serifFont),
-                    color = Color(palette.text)
-                ),
-                highlightBg = highlightBg,
-                selectionMode = selectionMode,
-                onTap = onToggleChrome,
-                onLongPress = { onQuote(para, index) },
-                commentCount = commentCounts[index] ?: 0,
-                dark = isDarkReader,
-                onOpenComments = { onOpenComments(para, index) }
-            )
-            Spacer(Modifier.height(settings.paragraphSpacingDp.dp))
-        }
-    }
-}
-
-/**
- * 单个段落：默认模式 tap=呼出菜单、长按=划线即问；
- * 选择模式下交给 SelectionContainer 处理自由选择与复制。
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ParagraphText(
-    text: String,
-    style: TextStyle,
-    highlightBg: Color = Color.Transparent,
-    selectionMode: Boolean,
-    onTap: () -> Unit,
-    onLongPress: () -> Unit,
-    commentCount: Int = 0,
-    dark: Boolean = false,
-    onOpenComments: () -> Unit = {}
-) {
-    Box(Modifier.fillMaxWidth()) {
-        val textModifier = if (selectionMode) {
-            Modifier
-                .fillMaxWidth()
-                .background(highlightBg, MaterialTheme.shapes.small)
-        } else {
-            Modifier
-                .fillMaxWidth()
-                .background(highlightBg, MaterialTheme.shapes.small)
-                .combinedClickable(
-                    onClick = onTap,
-                    onLongClick = onLongPress
-                )
-        }
-        val illustration = ReaderIllustration.parse(text)
-        if (illustration != null) {
-            ReaderIllustrationView(illustration, Modifier.fillMaxWidth().height(420.dp))
-        } else Text(
-            text = text,
-            style = style,
-            modifier = if (commentCount > 0) textModifier.padding(end = 28.dp) else textModifier
-        )
-        if (commentCount > 0) {
-            InlineTsukkomiMarker(
-                count = commentCount,
-                dark = dark,
-                onOpen = onOpenComments,
-                modifier = Modifier.align(Alignment.TopEnd)
-            )
-        }
-    }
-}
-
-/** 阅读设置面板内容 */
-@Composable
-private fun ReaderSettingsSheet(
-    settings: ReadingSettings,
-    viewModel: ReaderViewModel,
-    brightness: Float,
-    isDark: Boolean,
-    timerMode: TtsTimerMode,
-    timerRemainingSeconds: Int?,
-    onOpenTimer: () -> Unit,
-    onBrightnessChange: (Float) -> Unit
-) {
-    val sliderColors = SliderDefaults.colors(
-        thumbColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-        activeTrackColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-        inactiveTrackColor = if (isDark) Color(0xFF2C2C3A) else MaterialTheme.colorScheme.surfaceVariant
-    )
-    val labelColor = if (isDark) Color(0xFFE8E8EE) else MaterialTheme.colorScheme.onSurface
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Text("阅读设置", style = MaterialTheme.typography.titleLarge, color = labelColor)
-
-        // 亮度
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("亮度", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = brightness,
-                onValueChange = { onBrightnessChange((it * 100).toInt() / 100f) },
-                valueRange = 0.05f..1f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                if (brightness >= 0.99f) "系统" else "${(brightness * 100).toInt()}%",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(44.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.End
-            )
-        }
-
-        // 字号
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.FormatSize, contentDescription = null, tint = labelColor, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("字号", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(52.dp))
-            IconButton(onClick = { viewModel.setFontSize(settings.fontSizeSp - 1) }) {
-                Text("A-", style = MaterialTheme.typography.titleMedium, color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface)
-            }
-            Text(
-                "${settings.fontSizeSp}",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.width(40.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            IconButton(onClick = { viewModel.setFontSize(settings.fontSizeSp + 1) }) {
-                Text("A+", style = MaterialTheme.typography.titleMedium, color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface)
-            }
-        }
-
-        // 行距
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("行距", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = settings.lineSpacingMultiplier,
-                onValueChange = { viewModel.setLineSpacing((it * 10).toInt() / 10f) },
-                valueRange = 1.2f..2.4f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // 边距
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("边距", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = settings.horizontalPaddingDp.toFloat(),
-                onValueChange = { viewModel.setHorizontalPadding(it.toInt()) },
-                valueRange = 8f..48f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // 段距
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("段距", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Slider(
-                value = settings.paragraphSpacingDp.toFloat(),
-                onValueChange = { viewModel.setParagraphSpacing(it.toInt()) },
-                valueRange = 2f..28f,
-                colors = sliderColors,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // 背景主题
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("背景", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.width(80.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ReaderBgTheme.entries.forEach { theme ->
-                    val p = ReaderPalettes.of(theme.name)
-                    val selected = settings.bgTheme == theme
-                    Box(
-                        Modifier
-                            .size(36.dp)
-                            .background(Color(p.background), CircleShape)
-                            .border(
-                                width = if (selected) 2.5.dp else 1.dp,
-                                color = if (selected) (if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary)
-                                else (if (isDark) Color(0xFF4A4A58) else MaterialTheme.colorScheme.outline),
-                                shape = CircleShape
-                            )
-                            .clickable { viewModel.setBgTheme(theme) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("文", color = Color(p.text), style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-        }
-
-        // 衬线
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("衬线字体", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.weight(1f))
-            Switch(
-                checked = settings.serifFont,
-                onCheckedChange = { viewModel.setSerif(it) },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary,
-                    uncheckedThumbColor = if (isDark) Color(0xFFA0A0AC) else Color.White,
-                    uncheckedTrackColor = if (isDark) Color(0xFF2C2C3A) else MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
-        }
-
-        // 翻页模式
-        Text("翻页模式", style = MaterialTheme.typography.labelMedium, color = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = settings.pageMode == PageMode.SCROLL,
-                onClick = { viewModel.setPageMode(PageMode.SCROLL) },
-                shape = SegmentedButtonDefaults.itemShape(0, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = if (isDark) NovelColors.Indigo.copy(alpha = 0.35f) else MaterialTheme.colorScheme.secondaryContainer,
-                    activeContentColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.onSecondaryContainer,
-                    inactiveContainerColor = if (isDark) Color(0xFF252532) else Color.Transparent,
-                    inactiveContentColor = if (isDark) Color(0xFFB0B0BC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    activeBorderColor = if (isDark) NovelColors.IndigoLight.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline,
-                    inactiveBorderColor = if (isDark) Color(0xFF383846) else MaterialTheme.colorScheme.outline
-                )
-            ) { Text("上下滚动") }
-            SegmentedButton(
-                selected = settings.pageMode == PageMode.PAGED,
-                onClick = { viewModel.setPageMode(PageMode.PAGED) },
-                shape = SegmentedButtonDefaults.itemShape(1, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = if (isDark) NovelColors.Indigo.copy(alpha = 0.35f) else MaterialTheme.colorScheme.secondaryContainer,
-                    activeContentColor = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.onSecondaryContainer,
-                    inactiveContainerColor = if (isDark) Color(0xFF252532) else Color.Transparent,
-                    inactiveContentColor = if (isDark) Color(0xFFB0B0BC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    activeBorderColor = if (isDark) NovelColors.IndigoLight.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline,
-                    inactiveBorderColor = if (isDark) Color(0xFF383846) else MaterialTheme.colorScheme.outline
-                )
-            ) { Text("左右翻页") }
-        }
-
-        // 听书定时
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .clickable { onOpenTimer() }
-                .padding(vertical = 4.dp)
-        ) {
-            Icon(Icons.Rounded.Timer, contentDescription = null, tint = labelColor, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("听书定时", style = MaterialTheme.typography.bodyLarge, color = labelColor, modifier = Modifier.weight(1f))
-            Text(
-                when {
-                    timerRemainingSeconds != null -> "倒计时 ${formatRemaining(timerRemainingSeconds)}"
-                    timerMode == TtsTimerMode.END_OF_CHAPTER -> "听完本章停止"
-                    else -> timerMode.label
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (timerMode != TtsTimerMode.OFF) (if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary)
-                else (if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant)
-            )
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                Icons.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-    }
-}
-
-
-private fun formatRemaining(seconds: Int?): String {
-    if (seconds == null || seconds <= 0) return ""
-    val m = seconds / 60
-    val s = seconds % 60
-    return String.format(Locale.getDefault(), "%02d:%02d", m, s)
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TtsTimerSheet(
-    currentMode: TtsTimerMode,
-    remainingSeconds: Int?,
-    isDark: Boolean,
-    onSelectMode: (TtsTimerMode) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val labelColor = if (isDark) Color(0xFFE8E8EE) else MaterialTheme.colorScheme.onSurface
-    val accent = if (isDark) NovelColors.IndigoLight else MaterialTheme.colorScheme.primary
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = if (isDark) Color(0xFF181820) else MaterialTheme.colorScheme.surfaceContainerLow,
-        contentColor = labelColor,
-        dragHandle = {
-            BottomSheetDefaults.DragHandle(
-                color = if (isDark) Color(0xFF5A5A66) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-        }
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 36.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 4.dp)
-            ) {
-                Icon(
-                    Icons.Rounded.Timer,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "听书定时停止",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = labelColor
-                )
-            }
-
-            if (remainingSeconds != null && remainingSeconds > 0) {
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = accent.copy(alpha = 0.12f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.HourglassBottom,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            "倒计时中：将在 ${formatRemaining(remainingSeconds)} 后停止朗读",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = accent
-                        )
-                    }
-                }
-            } else if (currentMode == TtsTimerMode.END_OF_CHAPTER) {
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = accent.copy(alpha = 0.12f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.HourglassBottom,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            "本章读完后将自动停止朗读，不再连播下一章",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = accent
-                        )
-                    }
-                }
-            }
-
-            Text(
-                "定时选项",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (isDark) Color(0xFFA0A0AC) else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            TtsTimerMode.entries.forEach { mode ->
-                val isSelected = mode == currentMode
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = if (isSelected) {
-                        if (isDark) Color(0xFF2B2B38) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                    } else {
-                        if (isDark) Color(0xFF22222C) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    },
-                    border = if (isSelected) {
-                        androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.8f))
-                    } else null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onSelectMode(mode)
-                            onDismiss()
-                        }
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            mode.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (isSelected) accent else labelColor,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (isSelected) {
-                            Icon(
-                                Icons.Rounded.Check,
-                                contentDescription = "已选",
-                                tint = accent,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 针对息屏自动停止的系统电池优化检测与一键引导
-            val sheetContext = androidx.compose.ui.platform.LocalContext.current
-            val isIgnoringBattery = remember { com.novelai.assistant.data.tts.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(sheetContext) }
-            if (!isIgnoringBattery) {
-                Spacer(Modifier.height(4.dp))
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
-                    onClick = { com.novelai.assistant.data.tts.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(sheetContext) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.Timer,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "防息屏中断：设置后台无限制",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                            Text(
-                                "手机熄屏易被系统省电杀除，点此开启无限制运行",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f)
-                            )
-                        }
-                        Icon(
-                            Icons.Rounded.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
             }
         }
     }

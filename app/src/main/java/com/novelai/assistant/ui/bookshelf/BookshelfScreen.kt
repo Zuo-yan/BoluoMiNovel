@@ -27,20 +27,11 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items as listItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CallMerge
-import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.GridView
-import androidx.compose.material.icons.rounded.HideImage
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.ViewList
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -48,8 +39,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -64,8 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,9 +63,9 @@ import com.novelai.assistant.data.db.BookEntity
 import com.novelai.assistant.data.importer.BookImportManager
 import com.novelai.assistant.ui.components.EmptyState
 import com.novelai.assistant.ui.components.LargeTitleHeader
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -266,134 +253,88 @@ fun BookshelfScreen(
 
     // 长按操作菜单
     actionBook?.let { book ->
-        ModalBottomSheet(onDismissRequest = { actionBook = null }) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text(book.title, style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(10.dp))
-                SimpleAction(Icons.Rounded.Menu, "继续阅读") {
-                    actionBook = null; onOpenBook(book.id)
-                }
-                SimpleAction(Icons.Rounded.CallMerge, "剧情分支树") {
-                    actionBook = null; onOpenTree(book.id)
-                }
-                SimpleAction(Icons.Rounded.DriveFileMove, "移动到书单") {
-                    moveBook = book; actionBook = null
-                }
-                if (book.sourceType != com.novelai.assistant.data.db.BookSourceType.BOLUOBAO) {
-                    SimpleAction(
-                        icon = Icons.Rounded.Image,
-                        label = if (book.coverUri.isNullOrBlank()) "设置封面" else "更换封面"
-                    ) {
-                        val bid = book.id
-                        actionBook = null
-                        pendingCoverBookId = bid
-                        coverPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    }
-                    if (!book.coverUri.isNullOrBlank()) {
-                        SimpleAction(
-                            icon = Icons.Rounded.HideImage,
-                            label = "恢复默认封面"
-                        ) {
-                            viewModel.clearBookCover(book.id)
-                            actionBook = null
-                        }
-                    }
-                }
-                SimpleAction(Icons.Rounded.Delete, "删除本书", tint = MaterialTheme.colorScheme.error) {
-                    actionBook = null; confirmDelete = book
-                }
-                Spacer(Modifier.height(24.dp))
+        BookActionSheet(
+            book = book,
+            onDismiss = { actionBook = null },
+            onContinueReading = {
+                actionBook = null
+                onOpenBook(book.id)
+            },
+            onOpenTree = {
+                actionBook = null
+                onOpenTree(book.id)
+            },
+            onMoveToCategory = {
+                moveBook = book
+                actionBook = null
+            },
+            onPickCover = {
+                val bid = book.id
+                actionBook = null
+                pendingCoverBookId = bid
+                coverPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+            onClearCover = {
+                viewModel.clearBookCover(book.id)
+                actionBook = null
+            },
+            onDelete = {
+                actionBook = null
+                confirmDelete = book
             }
-        }
+        )
     }
 
     // 移动到书单
     moveBook?.let { book ->
-        ModalBottomSheet(onDismissRequest = { moveBook = null }) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text("移动《${book.title}》到书单", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(10.dp))
-                categories.filter { it != "全部" }.forEach { cat ->
-                    SimpleAction(Icons.Rounded.DriveFileMove, cat) {
-                        viewModel.moveBookToCategory(book, cat)
-                        moveBook = null
-                    }
-                }
-                Text(
-                    "提示：可在书架顶部「+ 书单」创建新书单",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(24.dp))
+        MoveToCategorySheet(
+            bookTitle = book.title,
+            categories = categories,
+            onDismiss = { moveBook = null },
+            onSelectCategory = { cat ->
+                viewModel.moveBookToCategory(book, cat)
+                moveBook = null
             }
-        }
+        )
     }
 
     // 新建书单
     if (showAddCategory) {
-        AlertDialog(
-            onDismissRequest = { showAddCategory = false },
-            title = { Text("新建书单") },
-            text = {
-                OutlinedTextField(
-                    value = newCategoryName,
-                    onValueChange = { newCategoryName = it },
-                    placeholder = { Text("如：奇幻 / 已读完 / AI 推演中") },
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.addCategory(newCategoryName)
-                    newCategoryName = ""
-                    showAddCategory = false
-                }) { Text("创建") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddCategory = false }) { Text("取消") }
+        AddCategoryDialog(
+            name = newCategoryName,
+            onNameChange = { newCategoryName = it },
+            onDismiss = { showAddCategory = false },
+            onConfirm = {
+                viewModel.addCategory(newCategoryName)
+                newCategoryName = ""
+                showAddCategory = false
             }
         )
     }
 
     // 删除书单确认
     categoryToDelete?.let { cat ->
-        AlertDialog(
-            onDismissRequest = { categoryToDelete = null },
-            title = { Text("删除书单「$cat」？") },
-            text = { Text("该书单将被删除，该书单下的书籍将保留在书架中（移至默认分类）。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        categoryToDelete = null
-                        viewModel.deleteCategory(cat)
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { categoryToDelete = null }) {
-                    Text("取消")
-                }
+        DeleteCategoryDialog(
+            category = cat,
+            onDismiss = { categoryToDelete = null },
+            onConfirm = {
+                categoryToDelete = null
+                viewModel.deleteCategory(cat)
             }
         )
     }
 
     // 确认删除
     confirmDelete?.let { book ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("删除《${book.title}》？") },
-            text = { Text("章节、AI 续写与分支记录将一并删除，且不可恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteBook(book)
-                    confirmDelete = null
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("取消") } }
+        DeleteBookDialog(
+            bookTitle = book.title,
+            onDismiss = { confirmDelete = null },
+            onConfirm = {
+                viewModel.deleteBook(book)
+                confirmDelete = null
+            }
         )
     }
 }
@@ -467,28 +408,8 @@ private fun ShelfRow(book: BookEntity, onClick: () -> Unit, onLongPress: () -> U
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SimpleAction(
-    icon: ImageVector,
-    label: String,
-    tint: Color = MaterialTheme.colorScheme.onSurface,
-    onClick: () -> Unit
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .combinedClickable(onClick = onClick, onLongClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, tint = tint)
-        Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = tint)
-    }
-}
+private val BOOK_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
 private fun formatTime(ts: Long): String =
     if (ts <= 0) "未读"
-    else SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
+    else Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).format(BOOK_TIME_FORMATTER)

@@ -1,15 +1,11 @@
 package com.novelai.assistant.ui.assistant
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,11 +17,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,9 +30,6 @@ import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,11 +37,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.ui.draw.shadow
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.graphics.SolidColor
-import com.novelai.assistant.ui.components.AmbientBackdrop
-import com.novelai.assistant.ui.components.liquidGlass
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,8 +59,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.novelai.assistant.data.db.AiChatRecordEntity
-import com.novelai.assistant.domain.PromptBuilder
 
 @Composable
 fun ReaderCompanionScreen(
@@ -164,26 +147,10 @@ fun ReaderCompanionScreen(
                 }
 
                 // 不剧透模式胶囊切换
-                FilterChip(
-                    selected = spoilerFree,
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.toggleSpoilerFree()
-                    },
-                    label = {
-                        Text(
-                            if (spoilerFree) "不剧透" else "全书模式",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            if (spoilerFree) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    },
-                    modifier = Modifier.height(32.dp)
+                SpoilerFreeChip(
+                    spoilerFree = spoilerFree,
+                    onToggle = { viewModel.toggleSpoilerFree() },
+                    compact = true
                 )
 
                 IconButton(onClick = { confirmClearChat = true }) {
@@ -268,6 +235,9 @@ fun ReaderCompanionScreen(
         }
 
         // ---------- 快捷指令选项条 ----------
+        val hasQuoteInChat = remember(chatRecords, quote) {
+            quote.isNotBlank() && chatRecords.any { it.role == "user" && it.content.contains(quote) }
+        }
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
@@ -285,16 +255,10 @@ fun ReaderCompanionScreen(
                     selected = false,
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        val prompt = when (label) {
-                            "AI吐槽" -> PromptBuilder.QUICK_ROAST
-                            "神评回复" -> "请针对此选段生成3条不同风格的高赞间贴神回复（反转吐槽、生动玩梗、深度共鸣），展现神级读者的幽默与洞察力。"
-                            "解析深意" -> PromptBuilder.QUICK_ANALYZE
-                            "情绪总结" -> PromptBuilder.QUICK_EMOTION
-                            "剧情伏笔" -> "请结合上下文，分析这段文字中可能隐藏的伏笔与情节走向暗示。"
-                            "人物心理" -> "请深度剖析这段文字中出场人物的微妙心理反应与潜台词。"
-                            else -> label
-                        }
-                        viewModel.send(prompt, customQuote = quote.takeIf { it.isNotBlank() })
+                        viewModel.sendAction(
+                            action = label,
+                            quoteText = quote.takeIf { it.isNotBlank() && !hasQuoteInChat }
+                        )
                     },
                     label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                     leadingIcon = {
@@ -305,69 +269,33 @@ fun ReaderCompanionScreen(
             }
         }
 
-        // ---------- 参考章节提示 ----------
-        retrievedHint?.let { hint ->
-            Text(
-                text = "已参考相关章节：$hint",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
-            )
-        }
-
         // ---------- 对话消息列表 ----------
-        Box(modifier = Modifier.weight(1f)) {
-            if (chatRecords.isEmpty() && streamingText.isBlank() && !generating) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Text(
-                            text = "选择上方快捷指令或直接追问",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    itemsIndexed(chatRecords, key = { _, r -> r.id }) { _, record ->
-                        ChatBubble(record)
-                    }
-                    if (generating && streamingText.isBlank()) {
-                        item(key = "thinking_indicator") {
-                            ThinkingBubble()
-                        }
-                    }
-                    if (streamingText.isNotBlank()) {
-                        item(key = "streaming_bubble") {
-                            ChatBubble(
-                                AiChatRecordEntity(
-                                    id = "streaming",
-                                    bookId = bookId,
-                                    chapterId = null,
-                                    role = "assistant",
-                                    content = streamingText
-                                ),
-                                isStreaming = true
-                            )
-                        }
-                    }
-                }
+        CompanionMessageList(
+            bookId = bookId,
+            chatRecords = chatRecords,
+            streamingText = streamingText,
+            generating = generating,
+            retrievedHint = retrievedHint,
+            listState = listState,
+            horizontalPadding = 16.dp,
+            retrievedHintPrefix = "已参考相关章节：",
+            modifier = Modifier.weight(1f)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                    modifier = Modifier.size(48.dp)
+                )
+                Text(
+                    text = "选择上方快捷指令或直接追问",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
@@ -436,7 +364,7 @@ fun ReaderCompanionScreen(
                             onClick = {
                                 if (canSend) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.send(input, customQuote = quote.takeIf { it.isNotBlank() })
+                                    viewModel.send(input)
                                     input = ""
                                 }
                             },
@@ -462,24 +390,11 @@ fun ReaderCompanionScreen(
     }
 
     if (confirmClearChat) {
-        AlertDialog(
-            onDismissRequest = { confirmClearChat = false },
-            title = { Text("清空对话记录？") },
-            text = { Text("确定要清空本书的所有伴读问答记录吗？此操作无法撤销。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmClearChat = false
-                        viewModel.clearChat()
-                    }
-                ) {
-                    Text("清空", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmClearChat = false }) {
-                    Text("取消")
-                }
+        ClearChatDialog(
+            onDismiss = { confirmClearChat = false },
+            onConfirm = {
+                confirmClearChat = false
+                viewModel.clearChat()
             }
         )
     }

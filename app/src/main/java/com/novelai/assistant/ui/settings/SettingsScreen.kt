@@ -44,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,16 +52,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.prefs.AppThemeMode
 import com.novelai.assistant.data.repository.TaskScene
 import com.novelai.assistant.ui.components.LargeTitleHeader
 import com.novelai.assistant.ui.components.SectionCard
 import com.novelai.assistant.ui.components.SettingRow
-import com.novelai.assistant.ui.components.StatusDot
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +77,6 @@ fun SettingsScreen(
     val companionRoute by viewModel.companionRoute.collectAsStateWithLifecycle()
     val usage by viewModel.usage.collectAsStateWithLifecycle()
     val appTheme by viewModel.appThemeMode.collectAsStateWithLifecycle()
-    val pingResults by viewModel.pingResults.collectAsStateWithLifecycle()
     val routeModels by viewModel.routeModels.collectAsStateWithLifecycle()
     val loadingRouteModels by viewModel.loadingRouteModels.collectAsStateWithLifecycle()
 
@@ -95,7 +98,6 @@ fun SettingsScreen(
             footer = "支持 Chat Completions、Responses、Anthropic Messages 与 Gemini；密钥经 Android Keystore 加密存储"
         ) {
             providers.forEach { config ->
-                val ping = pingResults[config.id]
                 val isDefault = continuationRoute.providerId == config.id && companionRoute.providerId == config.id
                 SettingRow(
                     title = config.providerName,
@@ -127,20 +129,6 @@ fun SettingsScreen(
                                 ) {
                                     Text("设为默认", style = MaterialTheme.typography.labelSmall)
                                 }
-                            }
-                            when (ping) {
-                                is PingUiState.Testing -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                is PingUiState.Ok -> {
-                                    StatusDot(MaterialTheme.colorScheme.primary)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("${ping.latencyMs}ms", style = MaterialTheme.typography.labelMedium)
-                                }
-                                is PingUiState.Fail -> {
-                                    StatusDot(MaterialTheme.colorScheme.error)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("失败", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-                                }
-                                null -> {}
                             }
                             Spacer(Modifier.width(10.dp))
                             Switch(
@@ -242,11 +230,22 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        Spacer(Modifier.height(20.dp))
-
-        val screenContext = androidx.compose.ui.platform.LocalContext.current
-        val isIgnoringBattery = remember {
-            com.novelai.assistant.data.tts.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(screenContext)
+        val screenContext = LocalContext.current
+        val lifecycleOwner = LocalLifecycleOwner.current
+        var isIgnoringBattery by remember {
+            mutableStateOf(
+                com.novelai.assistant.data.tts.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(screenContext)
+            )
+        }
+        DisposableEffect(lifecycleOwner, screenContext) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    isIgnoringBattery =
+                        com.novelai.assistant.data.tts.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(screenContext)
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
         SectionCard(
             title = "系统与后台听书",
@@ -321,15 +320,16 @@ fun SettingsScreen(
             routeModels = routeModels,
             loadingModels = loadingRouteModels,
             routeModelError = routeModelError,
-            recommendedModels = viewModel.getRecommendedModels(
-                (if (scene == TaskScene.CONTINUATION) continuationRoute else companionRoute).providerId ?: providers.firstOrNull()?.id.orEmpty()
-            ),
             onGetRecommendedModels = { viewModel.getRecommendedModels(it) },
             onFetchModels = { viewModel.fetchModelsFor(it) },
             onClearModels = { viewModel.clearRouteModels() },
-            onDismiss = { routeScene = null },
+            onDismiss = {
+                viewModel.clearRouteModels()
+                routeScene = null
+            },
             onSave = { providerId, model ->
                 viewModel.saveRoute(scene, providerId, model)
+                viewModel.clearRouteModels()
                 routeScene = null
             }
         )
@@ -344,17 +344,20 @@ private fun RouteEditDialog(
     routeModels: List<String>,
     loadingModels: Boolean,
     routeModelError: String?,
-    recommendedModels: List<String>,
     onGetRecommendedModels: (String) -> List<String>,
     onFetchModels: (String) -> Unit,
     onClearModels: () -> Unit,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit
 ) {
-    var providerId by remember { mutableStateOf(current.providerId ?: providers.firstOrNull()?.id ?: "") }
+    var providerId by remember(scene, current.providerId) {
+        mutableStateOf(current.providerId ?: providers.firstOrNull()?.id ?: "")
+    }
     val selectedProvider = providers.firstOrNull { it.id == providerId }
-    var model by remember { mutableStateOf(current.model.ifBlank { selectedProvider?.selectedModel ?: "" }) }
-    var filterText by remember { mutableStateOf("") }
+    var model by remember(scene, current.providerId) {
+        mutableStateOf(current.model.ifBlank { selectedProvider?.selectedModel ?: "" })
+    }
+    var filterText by remember(scene, current.providerId) { mutableStateOf("") }
     val recs = remember(providerId) { onGetRecommendedModels(providerId) }
 
     AlertDialog(

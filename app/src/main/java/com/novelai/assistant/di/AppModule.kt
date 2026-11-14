@@ -1,15 +1,25 @@
 package com.novelai.assistant.di
 
+import android.content.ContentResolver
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
-import com.novelai.assistant.data.db.CategoryDao
-import com.novelai.assistant.data.db.ChatDao
-import com.novelai.assistant.data.db.ChapterDao
 import com.novelai.assistant.data.db.BookDao
+import com.novelai.assistant.data.db.CategoryDao
+import com.novelai.assistant.data.db.ChapterDao
+import com.novelai.assistant.data.db.ChatDao
 import com.novelai.assistant.data.db.NovelDatabase
+import com.novelai.assistant.data.db.SF_MIGRATION_1_2
+import com.novelai.assistant.data.db.SF_MIGRATION_2_3
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
+import com.novelai.assistant.data.sf.KtorSfTransport
+import com.novelai.assistant.data.sf.SfApi
+import com.novelai.assistant.data.sf.SfHttpClientFactory
+import com.novelai.assistant.data.sf.SfNonRedirectClient
+import com.novelai.assistant.data.sf.SfProtocol
+import com.novelai.assistant.data.sf.SfRequestGuard
+import com.novelai.assistant.data.sf.SfSafetyStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -19,9 +29,17 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 import java.util.concurrent.TimeUnit
+import javax.inject.Qualifier
 import javax.inject.Singleton
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class ApplicationScope
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -29,21 +47,28 @@ object AppModule {
 
     @Provides
     @Singleton
+    @ApplicationScope
+    fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Provides
+    fun provideContentResolver(@ApplicationContext context: Context): ContentResolver =
+        context.contentResolver
+
+    @Provides
+    @Singleton
     fun provideDatabase(@ApplicationContext context: Context): NovelDatabase =
         Room.databaseBuilder(context, NovelDatabase::class.java, "novel_ai.db")
-            .addMigrations(com.novelai.assistant.data.db.SF_MIGRATION_1_2, com.novelai.assistant.data.db.SF_MIGRATION_2_3)
+            .addMigrations(SF_MIGRATION_1_2, SF_MIGRATION_2_3)
             .build()
 
     @Provides
     @Singleton
-    fun provideSfApi(transport: com.novelai.assistant.data.sf.KtorSfTransport, storage: com.novelai.assistant.data.security.SecureStorage): com.novelai.assistant.data.sf.SfApi {
-        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-        val key = "sf_request_safety_v1"
-        val saved = if (!storage.containsEncrypted(key)) com.novelai.assistant.data.sf.SfSafetyState() else runCatching {
-            json.decodeFromString<com.novelai.assistant.data.sf.SfSafetyState>(storage.getDecrypted(key) ?: error("unreadable"))
-        }.getOrDefault(com.novelai.assistant.data.sf.SfSafetyState())
-        val guard = com.novelai.assistant.data.sf.SfRequestGuard(saved, { storage.putEncrypted(key, json.encodeToString(it)) })
-        return com.novelai.assistant.data.sf.SfApi(transport, com.novelai.assistant.data.sf.SfProtocol.COMPATIBLE_DEVICE, guard)
+    fun provideSfApi(
+        transport: KtorSfTransport,
+        safetyStore: SfSafetyStore
+    ): SfApi {
+        val guard = SfRequestGuard(safetyStore.load(), safetyStore::save)
+        return SfApi(transport, SfProtocol.COMPATIBLE_DEVICE, guard)
     }
 
     @Provides fun provideBookDao(db: NovelDatabase): BookDao = db.bookDao()
@@ -66,7 +91,12 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(): HttpClient = HttpClient(OkHttp) {
+    @SfNonRedirectClient
+    fun provideSfNonRedirectClient(): HttpClient = SfHttpClientFactory.nonRedirectingClient
+
+    @Provides
+    @Singleton
+    fun provideHttpClient(json: Json): HttpClient = HttpClient(OkHttp) {
         engine {
             config {
                 connectTimeout(15, TimeUnit.SECONDS)
@@ -78,7 +108,7 @@ object AppModule {
             }
         }
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; isLenient = true })
+            json(json)
         }
     }
 }

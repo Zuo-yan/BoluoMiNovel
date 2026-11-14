@@ -17,14 +17,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -53,6 +54,7 @@ import androidx.compose.foundation.lazy.items
 import com.novelai.assistant.ui.components.OriginBadge
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun ContinuationScreen(
     bookId: String,
@@ -65,6 +67,7 @@ fun ContinuationScreen(
     val book by viewModel.book.collectAsStateWithLifecycle()
     val parent by viewModel.parentChapter.collectAsStateWithLifecycle()
     val instruction by viewModel.instruction.collectAsStateWithLifecycle()
+    val customTitle by viewModel.customTitle.collectAsStateWithLifecycle()
     val streaming by viewModel.streaming.collectAsStateWithLifecycle()
     val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
     val finished by viewModel.finished.collectAsStateWithLifecycle()
@@ -76,7 +79,6 @@ fun ContinuationScreen(
     val useLatest by viewModel.useLatestChapter.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     var showChapterPicker by remember { mutableStateOf(false) }
-    var titleDraft by remember { mutableStateOf("") }
 
     Column(
         Modifier
@@ -224,7 +226,7 @@ fun ContinuationScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // 生成 / 停止 / 保存
+            // 生成 / 停止
             when {
                 streaming -> {
                     OutlinedButton(
@@ -235,63 +237,7 @@ fun ContinuationScreen(
                         Text("  停止生成")
                     }
                 }
-                finished -> {
-                    OutlinedTextField(
-                        value = titleDraft,
-                        onValueChange = {
-                            titleDraft = it
-                            viewModel.customTitle.value = it
-                        },
-                        label = { Text("章节标题（可自定义，留空自动命名）") },
-                        placeholder = {
-                            Text(
-                                if (viewModel.isBranchMode) "分支：${instruction.take(10).ifBlank { "平行世界" }}"
-                                else "AI 续写 · ${parent?.title?.take(12) ?: "新章"}"
-                            )
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.saveAndContinue(autoGenerateNext = false)
-                                titleDraft = ""
-                            },
-                            modifier = Modifier.weight(1.3f)
-                        ) {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, Modifier.height(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("保存并续写下一章", maxLines = 1)
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.save(onSaved)
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("保存并退出", maxLines = 1)
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        if (!viewModel.isBranchMode) {
-                            OutlinedButton(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.appendToParentChapter(onSaved)
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("追加到本章末", maxLines = 1) }
-                        }
-                        OutlinedButton(
-                            onClick = { viewModel.reset() },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("重写本章", maxLines = 1) }
-                    }
-                }
-                else -> {
+                !finished -> {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -358,24 +304,27 @@ fun ContinuationScreen(
                         Spacer(Modifier.height(10.dp))
                         Text(streamingText, style = MaterialTheme.typography.bodyLarge)
 
-                        if (finished || (!streaming && streamingText.isNotBlank())) {
+                        if (finished) {
                             Spacer(Modifier.height(16.dp))
-                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                             Spacer(Modifier.height(12.dp))
                             Text(
                                 "保存已生成内容",
                                 style = MaterialTheme.typography.labelLarge,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(Modifier.height(8.dp))
                             OutlinedTextField(
-                                value = titleDraft,
-                                onValueChange = {
-                                    titleDraft = it
-                                    viewModel.customTitle.value = it
-                                },
+                                value = customTitle,
+                                onValueChange = { viewModel.customTitle.value = it },
                                 label = { Text("章节标题（可自定义，留空自动命名）") },
+                                placeholder = {
+                                    Text(
+                                        if (viewModel.isBranchMode) "分支：${instruction.take(10).ifBlank { "平行世界" }}"
+                                        else "AI 续写 · ${parent?.title?.take(12) ?: "新章"}"
+                                    )
+                                },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -385,7 +334,6 @@ fun ContinuationScreen(
                                     onClick = {
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         viewModel.saveAndContinue(autoGenerateNext = false)
-                                        titleDraft = ""
                                     },
                                     modifier = Modifier.weight(1.3f)
                                 ) {

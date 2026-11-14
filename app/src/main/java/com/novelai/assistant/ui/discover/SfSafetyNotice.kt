@@ -1,16 +1,34 @@
 package com.novelai.assistant.ui.discover
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.novelai.assistant.data.sf.SfSafetyState
 import kotlinx.coroutines.delay
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
-internal fun SfSafetyNotice(viewModel: SfViewModel, onLogin: (() -> Unit)? = null) {
-    val protection by viewModel.safety.collectAsStateWithLifecycle()
+internal fun SfSafetyNotice(
+    protection: SfSafetyState,
+    onAcknowledgeCooldown: () -> Unit,
+    onForceBypass: () -> Unit,
+    onLogin: (() -> Unit)? = null
+) {
     if (!protection.blocked) return
 
     Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
@@ -27,14 +45,18 @@ internal fun SfSafetyNotice(viewModel: SfViewModel, onLogin: (() -> Unit)? = nul
                     if (onLogin != null) {
                         TextButton(onLogin) { Text("官方验证后重新登录") }
                     } else {
-                        Text("请返回菠萝包页面，在官方验证并完成冷却后重新登录。", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        Text(
+                            "请返回菠萝包页面，在官方验证并完成冷却后重新登录。",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 } else {
-                    TextButton({ viewModel.acknowledgeCooldown() }) { Text("已检查，解除暂停") }
+                    TextButton(onAcknowledgeCooldown) { Text("已检查，解除暂停") }
                 }
                 Spacer(Modifier.weight(1f))
                 FilledTonalButton(
-                    onClick = { viewModel.forceBypassSafety() },
+                    onClick = onForceBypass,
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text("无视风险继续", color = MaterialTheme.colorScheme.onError)
@@ -55,7 +77,7 @@ private fun SafetyCooldownText(until: Long) {
     }
     if (clock < until) {
         Text(
-            text = "冷却至 ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(until))}",
+            text = "冷却至 ${DateFormat.getDateTimeInstance().format(Date(until))}",
             style = MaterialTheme.typography.bodySmall
         )
     }

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.novelai.assistant.ui.components.SfAvatar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,7 +44,7 @@ fun SfAuthorScreen(
     authorName: String,
     onBack: () -> Unit,
     onOpenBook: (String) -> Unit,
-    viewModel: SfViewModel = hiltViewModel()
+    viewModel: SfBookDetailViewModel = hiltViewModel()
 ) {
     LaunchedEffect(bookId) { viewModel.loadAuthor(bookId) }
     val portfolio by viewModel.authorPortfolio.collectAsStateWithLifecycle()

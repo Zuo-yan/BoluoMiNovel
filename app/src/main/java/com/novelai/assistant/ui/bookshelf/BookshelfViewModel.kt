@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -22,8 +23,7 @@ enum class ShelfViewMode { GRID, LIST }
 @HiltViewModel
 class BookshelfViewModel @Inject constructor(
     private val bookRepository: BookRepository,
-    private val categoryRepository: CategoryRepository,
-    private val importManager: BookImportManager
+    private val categoryRepository: CategoryRepository
 ) : ViewModel() {
 
     private val selectedCategory = MutableStateFlow("全部")
@@ -33,12 +33,9 @@ class BookshelfViewModel @Inject constructor(
     private val allBooks = bookRepository.observeBooks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val allCategories = categoryRepository.observeCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val categories: StateFlow<List<String>> = combine(allCategories, selectedCategory) { cats, _ ->
-        listOf("全部") + cats.map { it.name }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("全部"))
+    val categories: StateFlow<List<String>> = categoryRepository.observeCategories()
+        .map { cats -> listOf("全部") + cats.map { it.name } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("全部"))
 
     val currentCategory: StateFlow<String> = selectedCategory.asStateFlow()
 

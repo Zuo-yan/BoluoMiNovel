@@ -1,5 +1,7 @@
 package com.novelai.assistant.ui.novel
 
+import android.net.Uri
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,10 +15,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,10 +32,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -53,21 +57,19 @@ import com.novelai.assistant.data.tts.ListeningNavBus
 import com.novelai.assistant.ui.assistant.AssistantScreen
 import com.novelai.assistant.ui.assistant.ReaderCompanionScreen
 import com.novelai.assistant.ui.bookshelf.BookshelfScreen
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
-import com.novelai.assistant.ui.components.glassEffect
 import com.novelai.assistant.ui.components.AmbientBackdrop
-import com.novelai.assistant.ui.components.liquidGlass
 import com.novelai.assistant.ui.components.glassSource
+import com.novelai.assistant.ui.components.liquidGlass
 import com.novelai.assistant.ui.components.rememberGlassState
 import com.novelai.assistant.ui.continuation.ContinuationScreen
-import com.novelai.assistant.ui.discover.DiscoverScreen
+import com.novelai.assistant.ui.discover.discoverGraph
 import com.novelai.assistant.ui.listening.ListeningFloatingCapsule
 import com.novelai.assistant.ui.listening.ListeningScreen
 import com.novelai.assistant.ui.reader.ReaderScreen
 import com.novelai.assistant.ui.settings.ProviderEditScreen
 import com.novelai.assistant.ui.settings.SettingsScreen
 import com.novelai.assistant.ui.tree.BranchTreeScreen
+import dev.chrisbanes.haze.HazeState
 
 object Routes {
     const val ONBOARDING = "onboarding"
@@ -78,7 +80,6 @@ object Routes {
     const val SF_DETAIL = "sf_detail/{bookId}"
     const val SF_BROWSE = "sf_browse"
     const val SF_COMICS = "sf_comics"
-    const val SF_COMIC = "sf_comic"
     const val SF_COMIC_READER = "sf_comic_reader/{slug}"
     const val SF_RECOMMENDATIONS = "sf_recommendations"
     const val SF_RELATED_LISTS = "sf_related_lists/{bookId}"
@@ -96,20 +97,21 @@ object Routes {
     fun assistant() = "assistant"
     fun reader(bookId: String) = "reader/$bookId"
     fun readerAt(bookId: String, chapterIndex: Int) = "reader/$bookId?chapter=$chapterIndex"
+    fun sfCatalog(bookId: String) = "sf_catalog/$bookId"
     fun sfDetail(bookId: String) = "sf_detail/$bookId"
     fun sfBrowse() = "sf_browse"
     fun sfComics() = "sf_comics"
     fun sfComic(slug: String) = "sf_comic_reader/$slug"
     fun sfRelatedLists(bookId: String) = "sf_related_lists/$bookId"
     fun sfAuthor(bookId: String, name: String) =
-        "sf_author/$bookId?name=${android.net.Uri.encode(name)}"
+        "sf_author/$bookId?name=${Uri.encode(name)}"
     fun generate(bookId: String, chapterId: String, mode: String) =
         "generate/$bookId/$chapterId?mode=$mode"
     fun tree(bookId: String) = "tree/$bookId"
     fun providerEdit(providerId: String) = "provider_edit/$providerId"
     fun readerCompanion(bookId: String, quote: String, action: String = ""): String {
-        val q = android.net.Uri.encode(quote)
-        val a = android.net.Uri.encode(action)
+        val q = Uri.encode(quote)
+        val a = Uri.encode(action)
         return "reader_companion/$bookId?quote=$q&action=$a"
     }
 }
@@ -151,7 +153,7 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
     val showBottomBar = isTopLevelRoute(currentRoute) && !isImeVisible
 
     // 监听通知栏卡片点击事件：跳转到专门听书模块
-    androidx.compose.runtime.LaunchedEffect(navBus) {
+    LaunchedEffect(navBus) {
         navBus.openListening.collect {
             navController.navigate(Routes.LISTENING) {
                 launchSingleTop = true
@@ -159,7 +161,13 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
         }
     }
 
-    val currentSpeakingBookId by appViewModel.ttsPlayer.currentBookId.collectAsStateWithLifecycle()
+    val ttsSpeaking by appViewModel.ttsSpeaking.collectAsStateWithLifecycle()
+    val ttsPaused by appViewModel.ttsPaused.collectAsStateWithLifecycle()
+    val currentSpeakingBookId by appViewModel.ttsBookId.collectAsStateWithLifecycle()
+    val ttsBookTitle by appViewModel.ttsBookTitle.collectAsStateWithLifecycle()
+    val ttsChapterTitle by appViewModel.ttsChapterTitle.collectAsStateWithLifecycle()
+    val listenPillPosition by appViewModel.listenPillPosition.collectAsStateWithLifecycle()
+
     val currentReaderBookId = backStackEntry?.arguments?.getString("bookId")
     val isReadingCurrentTtsBook = currentRoute?.startsWith("reader") == true &&
         currentSpeakingBookId.isNotBlank() &&
@@ -180,7 +188,7 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
         Scaffold(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0)
-        ) { padding ->
+        ) { _ ->
             NavHost(
                 navController = navController,
                 startDestination = if (onboardingDone == true) Routes.BOOKSHELF else Routes.ONBOARDING,
@@ -189,7 +197,7 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                     .glassSource(hazeState),
                 enterTransition = {
                     if (targetState.destination.route in topLevelRoutes) fadeIn(tween(100))
-                    else slideInHorizontally(tween(220, easing = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.72f, 0f, 1f))) { it / 5 } + fadeIn(tween(160))
+                    else slideInHorizontally(tween(220, easing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f))) { it / 5 } + fadeIn(tween(160))
                 },
                 exitTransition = {
                     fadeOut(tween(100))
@@ -216,73 +224,15 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         onOpenTree = { navController.navigate(Routes.tree(it)) }
                     )
                 }
-                composable(Routes.DISCOVER) {
-                    DiscoverScreen(
-                        onOpenBook = { navController.navigate(Routes.sfDetail(it)) },
-                        onOpenCatalog = { navController.navigate("sf_catalog/$it") },
-                        onOpenFanqie = { navController.navigate(Routes.FANQIE) },
-                        onOpenNovelBrowse = { navController.navigate(Routes.sfBrowse()) },
-                        onOpenComics = { navController.navigate(Routes.sfComics()) },
-                        onOpenRecommendations = { navController.navigate(Routes.SF_RECOMMENDATIONS) }
-                    )
-                }
-                composable(Routes.FANQIE) { com.novelai.assistant.ui.discover.FanqieScreen(onBack = { navController.popBackStack() }) }
-                composable(Routes.SF_BROWSE) {
-                    com.novelai.assistant.ui.discover.SfBrowseScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenBookDetail = { navController.navigate(Routes.sfDetail(it)) }
-                    )
-                }
-                composable(Routes.SF_COMICS) {
-                    com.novelai.assistant.ui.discover.SfComicBrowseScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenComic = { navController.navigate(Routes.sfComic(it)) }
-                    )
-                }
-                composable(Routes.SF_COMIC_READER, arguments = listOf(navArgument("slug") { type = NavType.StringType })) {
-                    com.novelai.assistant.ui.discover.SfComicReaderScreen(
-                        onBack = { navController.popBackStack() })
-                }
-                composable(Routes.SF_DETAIL, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) { entry ->
-                    val id = entry.arguments?.getString("bookId").orEmpty()
-                    com.novelai.assistant.ui.discover.SfBookDetailScreen(
-                        bookId = id,
-                        onBack = { navController.popBackStack() },
-                        onOpenReader = { bookId, chapterIndex ->
-                            navController.navigate(if (chapterIndex >= 0) Routes.readerAt(bookId, chapterIndex) else Routes.reader(bookId))
-                        },
-                        onOpenCatalog = { bookId ->
-                            navController.navigate("sf_catalog/$bookId")
-                        },
-                        onOpenRelatedLists = { navController.navigate(Routes.sfRelatedLists(it)) },
-                        onOpenAuthor = { id, name -> navController.navigate(Routes.sfAuthor(id, name)) }
-                    )
-                }
-                composable(Routes.SF_AUTHOR, arguments = listOf(
-                    navArgument("bookId") { type = NavType.StringType },
-                    navArgument("name") { type = NavType.StringType; defaultValue = "" }
-                )) { entry ->
-                    com.novelai.assistant.ui.discover.SfAuthorScreen(
-                        bookId = entry.arguments?.getString("bookId").orEmpty(),
-                        authorName = entry.arguments?.getString("name").orEmpty(),
-                        onBack = { navController.popBackStack() },
-                        onOpenBook = { navController.navigate(Routes.sfDetail(it)) }
-                    )
-                }
-                composable(Routes.SF_RECOMMENDATIONS) {
-                    com.novelai.assistant.ui.discover.SfExploreScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenBookDetail = { navController.navigate(Routes.sfDetail(it)) })
-                }
-                composable(Routes.SF_RELATED_LISTS, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) {
-                    com.novelai.assistant.ui.discover.SfExploreScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenBookDetail = { navController.navigate(Routes.sfDetail(it)) })
-                }
-                composable(Routes.SF_CATALOG, arguments = listOf(navArgument("bookId") { type = NavType.StringType })) { entry ->
-                    val id = entry.arguments?.getString("bookId").orEmpty()
-                    com.novelai.assistant.ui.discover.SfCatalogScreen(id, { navController.popBackStack() }, { index -> navController.navigate(Routes.readerAt(id, index)) })
-                }
+                discoverGraph(
+                    navController = navController,
+                    onOpenReader = { bookId, chapterIndex ->
+                        navController.navigate(
+                            if (chapterIndex >= 0) Routes.readerAt(bookId, chapterIndex)
+                            else Routes.reader(bookId)
+                        )
+                    }
+                )
                 composable(Routes.ASSISTANT) {
                     AssistantScreen(hazeState = hazeState)
                 }
@@ -299,113 +249,118 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         }
                     )
                 }
-            composable(
-                Routes.READER,
-                arguments = listOf(
-                    navArgument("bookId") { type = NavType.StringType },
-                    navArgument("chapter") { type = NavType.IntType; defaultValue = -1 }
-                )
-            ) { entry ->
-                ReaderScreen(
-                    bookId = entry.arguments?.getString("bookId").orEmpty(),
-                    onBack = { navController.popBackStack() },
-                    onGenerate = { bookId, chapterId, mode ->
-                        navController.navigate(Routes.generate(bookId, chapterId, mode))
-                    },
-                    onOpenTree = { navController.navigate(Routes.tree(it)) },
-                    onAsk = { bookId, quote, action ->
-                        navController.navigate(Routes.readerCompanion(bookId, quote, action))
-                    },
-                    onOpenDetail = { bookId ->
-                        navController.navigate(Routes.sfDetail(bookId))
-                    }
-                )
-            }
-            composable(
-                Routes.READER_COMPANION,
-                arguments = listOf(
-                    navArgument("bookId") { type = NavType.StringType },
-                    navArgument("quote") { type = NavType.StringType; defaultValue = "" },
-                    navArgument("action") { type = NavType.StringType; defaultValue = "" }
-                )
-            ) { entry ->
-                ReaderCompanionScreen(
-                    bookId = entry.arguments?.getString("bookId").orEmpty(),
-                    quote = entry.arguments?.getString("quote").orEmpty(),
-                    action = entry.arguments?.getString("action").orEmpty(),
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable(
-                Routes.GENERATE,
-                arguments = listOf(
-                    navArgument("bookId") { type = NavType.StringType },
-                    navArgument("chapterId") { type = NavType.StringType },
-                    navArgument("mode") { type = NavType.StringType; defaultValue = "CONTINUATION" }
-                )
-            ) { entry ->
-                ContinuationScreen(
-                    bookId = entry.arguments?.getString("bookId").orEmpty(),
-                    parentChapterId = entry.arguments?.getString("chapterId").orEmpty(),
-                    mode = entry.arguments?.getString("mode") ?: "CONTINUATION",
-                    onBack = { navController.popBackStack() },
-                    onSaved = { navController.popBackStack() }
-                )
-            }
-            composable(
-                Routes.TREE,
-                arguments = listOf(navArgument("bookId") { type = NavType.StringType })
-            ) { entry ->
-                val bid = entry.arguments?.getString("bookId").orEmpty()
-                BranchTreeScreen(
-                    bookId = bid,
-                    onOpenChapter = { chapterIndex ->
-                        navController.navigate(Routes.readerAt(bid, chapterIndex))
-                    },
-                    onContinueChapter = { chapterId, mode ->
-                        navController.navigate(Routes.generate(bid, chapterId, mode))
-                    },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable(
-                Routes.PROVIDER_EDIT,
-                arguments = listOf(navArgument("providerId") { type = NavType.StringType })
-            ) { entry ->
-                ProviderEditScreen(
-                    providerId = entry.arguments?.getString("providerId") ?: "new",
-                    onBack = { navController.popBackStack() }
-                )
-            }
-        }
-    }
-
-    if (showBottomBar) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-        ) {
-            GlassBottomBar(
-                hazeState = hazeState,
-                currentRoute = currentRoute,
-                onSelect = { dest -> navigateTopLevel(navController, dest) }
-            )
-        }
-    }
-
-    if (showCapsule) {
-        ListeningFloatingCapsule(
-            ttsPlayer = appViewModel.ttsPlayer,
-            prefs = appViewModel.readingPreferencesRepository,
-            hazeState = hazeState,
-            onOpenListening = {
-                navController.navigate(Routes.LISTENING) {
-                    launchSingleTop = true
+                composable(
+                    Routes.READER,
+                    arguments = listOf(
+                        navArgument("bookId") { type = NavType.StringType },
+                        navArgument("chapter") { type = NavType.IntType; defaultValue = -1 }
+                    )
+                ) { entry ->
+                    ReaderScreen(
+                        bookId = entry.arguments?.getString("bookId").orEmpty(),
+                        onBack = { navController.popBackStack() },
+                        onGenerate = { bookId, chapterId, mode ->
+                            navController.navigate(Routes.generate(bookId, chapterId, mode))
+                        },
+                        onOpenTree = { navController.navigate(Routes.tree(it)) },
+                        onAsk = { bookId, quote, action ->
+                            navController.navigate(Routes.readerCompanion(bookId, quote, action))
+                        },
+                        onOpenDetail = { bookId ->
+                            navController.navigate(Routes.sfDetail(bookId))
+                        }
+                    )
+                }
+                composable(
+                    Routes.READER_COMPANION,
+                    arguments = listOf(
+                        navArgument("bookId") { type = NavType.StringType },
+                        navArgument("quote") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("action") { type = NavType.StringType; defaultValue = "" }
+                    )
+                ) { entry ->
+                    ReaderCompanionScreen(
+                        bookId = entry.arguments?.getString("bookId").orEmpty(),
+                        quote = entry.arguments?.getString("quote").orEmpty(),
+                        action = entry.arguments?.getString("action").orEmpty(),
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(
+                    Routes.GENERATE,
+                    arguments = listOf(
+                        navArgument("bookId") { type = NavType.StringType },
+                        navArgument("chapterId") { type = NavType.StringType },
+                        navArgument("mode") { type = NavType.StringType; defaultValue = "CONTINUATION" }
+                    )
+                ) { entry ->
+                    ContinuationScreen(
+                        bookId = entry.arguments?.getString("bookId").orEmpty(),
+                        parentChapterId = entry.arguments?.getString("chapterId").orEmpty(),
+                        mode = entry.arguments?.getString("mode") ?: "CONTINUATION",
+                        onBack = { navController.popBackStack() },
+                        onSaved = { navController.popBackStack() }
+                    )
+                }
+                composable(
+                    Routes.TREE,
+                    arguments = listOf(navArgument("bookId") { type = NavType.StringType })
+                ) { entry ->
+                    val bid = entry.arguments?.getString("bookId").orEmpty()
+                    BranchTreeScreen(
+                        bookId = bid,
+                        onOpenChapter = { chapterIndex ->
+                            navController.navigate(Routes.readerAt(bid, chapterIndex))
+                        },
+                        onContinueChapter = { chapterId, mode ->
+                            navController.navigate(Routes.generate(bid, chapterId, mode))
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(
+                    Routes.PROVIDER_EDIT,
+                    arguments = listOf(navArgument("providerId") { type = NavType.StringType })
+                ) { entry ->
+                    ProviderEditScreen(
+                        providerId = entry.arguments?.getString("providerId") ?: "new",
+                        onBack = { navController.popBackStack() }
+                    )
                 }
             }
-        )
-    }
+        }
+
+        if (showBottomBar) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+            ) {
+                GlassBottomBar(
+                    hazeState = hazeState,
+                    currentRoute = currentRoute,
+                    onSelect = { dest -> navigateTopLevel(navController, dest) }
+                )
+            }
+        }
+
+        if (showCapsule) {
+            ListeningFloatingCapsule(
+                isVisible = ttsSpeaking || ttsPaused,
+                paused = ttsPaused,
+                bookTitle = ttsBookTitle,
+                chapterTitle = ttsChapterTitle,
+                positionFrac = listenPillPosition,
+                onTogglePlayPause = appViewModel::toggleTtsPlayPause,
+                onSavePosition = appViewModel::saveListenPillPosition,
+                onOpenListening = {
+                    navController.navigate(Routes.LISTENING) {
+                        launchSingleTop = true
+                    }
+                },
+                hazeState = hazeState
+            )
+        }
     }
 }
 
@@ -419,7 +374,7 @@ private fun navigateTopLevel(navController: NavHostController, route: String) {
 
 @Composable
 private fun GlassBottomBar(
-    hazeState: dev.chrisbanes.haze.HazeState,
+    hazeState: HazeState,
     currentRoute: String?,
     onSelect: (String) -> Unit
 ) {
@@ -444,8 +399,7 @@ private fun GlassBottomBar(
             .liquidGlass(
                 state = hazeState,
                 shape = RoundedCornerShape(26.dp),
-                blurRadius = 28.dp,
-                
+                blurRadius = 28.dp
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {

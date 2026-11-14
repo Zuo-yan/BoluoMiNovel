@@ -17,6 +17,7 @@ import com.novelai.assistant.domain.PromptBuilder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,7 +94,11 @@ class AssistantViewModel @Inject constructor(
             val book = bookRepository.getBook(bookId) ?: return@launch
             _currentBook.value = book
             val chapters = bookRepository.getChapters(bookId)
-            _currentChapter.value = chapters.getOrNull(book.currentReadingChapterIndex.coerceIn(0, chapters.lastIndex))
+            _currentChapter.value = if (chapters.isNotEmpty()) {
+                chapters.getOrNull(book.currentReadingChapterIndex.coerceIn(0, chapters.lastIndex))
+            } else {
+                null
+            }
         }
     }
 
@@ -124,9 +129,12 @@ class AssistantViewModel @Inject constructor(
     fun sendAction(action: String, quoteText: String? = null) {
         val q = quoteText ?: _pendingQuote.value
         val prompt = when (action) {
-            "AI吐槽", "吐槽" -> PromptBuilder.QUICK_ROAST
-            "解析深意", "解析" -> PromptBuilder.QUICK_ANALYZE
-            "情绪总结", "情绪" -> PromptBuilder.QUICK_EMOTION
+            "AI吐槽", "吐槽", "AI 吐槽" -> PromptBuilder.QUICK_ROAST
+            "神评回复" -> "请针对此选段生成3条不同风格的高赞间贴神回复（反转吐槽、生动玩梗、深度共鸣），展现神级读者的幽默与洞察力。"
+            "解析深意", "解析", "AI 解析深意" -> PromptBuilder.QUICK_ANALYZE
+            "情绪总结", "情绪", "AI 情绪总结" -> PromptBuilder.QUICK_EMOTION
+            "剧情伏笔" -> "请结合上下文，分析这段文字中可能隐藏的伏笔与情节走向暗示。"
+            "人物心理" -> "请深度剖析这段文字中出场人物的微妙心理反应与潜台词。"
             else -> action
         }
         send(prompt, customQuote = q)
@@ -159,109 +167,112 @@ class AssistantViewModel @Inject constructor(
         val (provider, model) = active
         val effectiveProvider = provider.copy(selectedModel = model)
 
+        generateJob?.cancel()
         generateJob = viewModelScope.launch {
             _error.value = null
             _generating.value = true
             _streamingText.value = ""
             _pendingQuote.value = null
 
-            val book = _currentBook.value ?: bookRepository.getBook(bookId)
-            if (book == null) {
-                _error.value = "无法加载书籍信息，请稍候重试"
-                _generating.value = false
-                return@launch
-            }
-            _currentBook.value = book
-
-            val latestBook = bookRepository.getBook(bookId) ?: book
-            val availableChapters = bookRepository.getChapters(bookId)
-            _currentChapter.value = if (availableChapters.isEmpty()) null else availableChapters.getOrNull(latestBook.currentReadingChapterIndex.coerceIn(0, availableChapters.lastIndex))
-            val chapter = _currentChapter.value
-
-            val history = chatRepository.recentMessages(bookId, 12)
-                .filter { it.role == "user" || it.role == "assistant" }
-                .map { ChatMessage(it.role, it.content) }
-
-            // RAG：按问题检索相关章节（不剧透模式下只召回已读部分）
-            val query = if (quote.isNullOrBlank()) trimmed else "$quote $trimmed"
-            val retrieved = runCatching {
-                retrievalService.retrieve(
-                    bookId = bookId,
-                    query = query,
-                    topK = 3,
-                    spoilerFree = _spoilerFree.value,
-                    currentChapterIndex = chapter?.chapterIndex
-                )
-            }.getOrDefault(emptyList())
-            _retrievedHint.value = retrieved.takeIf { it.isNotEmpty() }
-                ?.joinToString("、") { it.chapter.title }
-
-            val userContentToSave = if (quote.isNullOrBlank()) {
-                trimmed
-            } else {
-                "【划线选段】\n$quote\n\n【提问】\n$trimmed"
-            }
-
-            chatRepository.save(
-                AiChatRecordEntity(
-                    id = UUID.randomUUID().toString(),
-                    bookId = bookId,
-                    chapterId = chapter?.id,
-                    role = "user",
-                    content = userContentToSave
-                )
-            )
-
-            val messages = PromptBuilder.companionMessages(
-                book = book,
-                currentChapter = chapter,
-                history = history,
-                question = trimmed.ifBlank { "请解析上面的划线选段" },
-                quotedText = quote,
-                retrievedChapters = retrieved.map { it.chapter },
-                spoilerFree = _spoilerFree.value
-            )
-
-            val builder = StringBuilder()
-            var promptTokens = 0L
-            var completionTokens = 0L
-
-            aiClientFactory.clientFor(effectiveProvider.kind)
-                .streamChat(effectiveProvider, messages, effectiveProvider.maxTokens, effectiveProvider.temperature)
-                .collect { event ->
-                    when (event) {
-                        is StreamEvent.Delta -> {
-                            builder.append(event.text)
-                            _streamingText.value = builder.toString()
-                        }
-                        is StreamEvent.Usage -> {
-                            promptTokens = maxOf(promptTokens, event.promptTokens)
-                            completionTokens = maxOf(completionTokens, event.completionTokens)
-                        }
-                        is StreamEvent.Error -> _error.value = event.message
-                        is StreamEvent.Done -> Unit
-                    }
+            try {
+                val book = _currentBook.value ?: bookRepository.getBook(bookId)
+                if (book == null) {
+                    _error.value = "无法加载书籍信息，请稍候重试"
+                    return@launch
                 }
+                _currentBook.value = book
 
-            usageRepository.add(promptTokens, completionTokens)
+                val latestBook = bookRepository.getBook(bookId) ?: book
+                val availableChapters = bookRepository.getChapters(bookId)
+                _currentChapter.value = if (availableChapters.isEmpty()) null else availableChapters.getOrNull(latestBook.currentReadingChapterIndex.coerceIn(0, availableChapters.lastIndex))
+                val chapter = _currentChapter.value
 
-            val full = builder.toString()
-            if (full.isNotBlank()) {
+                val history = chatRepository.recentMessages(bookId, 12)
+                    .filter { it.role == "user" || it.role == "assistant" }
+                    .map { ChatMessage(it.role, it.content) }
+
+                // RAG：按问题检索相关章节（不剧透模式下只召回已读部分）
+                val query = if (quote.isNullOrBlank()) trimmed else "$quote $trimmed"
+                val retrieved = runCatching {
+                    retrievalService.retrieve(
+                        bookId = bookId,
+                        query = query,
+                        topK = 3,
+                        spoilerFree = _spoilerFree.value,
+                        currentChapterIndex = chapter?.chapterIndex
+                    )
+                }.getOrDefault(emptyList())
+                _retrievedHint.value = retrieved.takeIf { it.isNotEmpty() }
+                    ?.joinToString("、") { it.chapter.title }
+
+                val userContentToSave = QuotePromptCodec.encode(quote, trimmed)
+
                 chatRepository.save(
                     AiChatRecordEntity(
                         id = UUID.randomUUID().toString(),
                         bookId = bookId,
                         chapterId = chapter?.id,
-                        role = "assistant",
-                        content = full,
-                        modelUsed = model
+                        role = "user",
+                        content = userContentToSave
                     )
                 )
-            } else if (_error.value == null) {
-                _error.value = "未收到任何回复内容"
+
+                val messages = PromptBuilder.companionMessages(
+                    book = book,
+                    currentChapter = chapter,
+                    history = history,
+                    question = trimmed.ifBlank { "请解析上面的划线选段" },
+                    quotedText = quote,
+                    retrievedChapters = retrieved.map { it.chapter },
+                    spoilerFree = _spoilerFree.value
+                )
+
+                val builder = StringBuilder()
+                var promptTokens = 0L
+                var completionTokens = 0L
+
+                aiClientFactory.clientFor(effectiveProvider.kind)
+                    .streamChat(effectiveProvider, messages, effectiveProvider.maxTokens, effectiveProvider.temperature)
+                    .collect { event ->
+                        when (event) {
+                            is StreamEvent.Delta -> {
+                                builder.append(event.text)
+                                _streamingText.value = builder.toString()
+                            }
+                            is StreamEvent.Usage -> {
+                                promptTokens = maxOf(promptTokens, event.promptTokens)
+                                completionTokens = maxOf(completionTokens, event.completionTokens)
+                            }
+                            is StreamEvent.Error -> _error.value = event.message
+                            is StreamEvent.Done -> Unit
+                        }
+                    }
+
+                usageRepository.add(promptTokens, completionTokens)
+
+                val full = builder.toString()
+                if (full.isNotBlank()) {
+                    chatRepository.save(
+                        AiChatRecordEntity(
+                            id = UUID.randomUUID().toString(),
+                            bookId = bookId,
+                            chapterId = chapter?.id,
+                            role = "assistant",
+                            content = full,
+                            modelUsed = model
+                        )
+                    )
+                } else if (_error.value == null) {
+                    _error.value = "未收到任何回复内容"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                _error.value = "生成中断：${t.message ?: t.javaClass.simpleName}"
+            } finally {
+                _streamingText.value = ""
+                _generating.value = false
             }
-            _streamingText.value = ""
-            _generating.value = false
         }
     }
 }

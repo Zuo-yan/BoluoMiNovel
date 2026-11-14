@@ -12,18 +12,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.novelai.assistant.data.text.ChapterTextParser
 import com.novelai.assistant.ui.components.AsyncCover
 
 data class ReaderIllustration(val url: String) {
     companion object {
-        private val tag = Regex("\\[img(?:=[^]]*)?]\\s*(https?://[^\\s\\[]+)\\s*\\[/img]", RegexOption.IGNORE_CASE)
-        fun parse(text: String): ReaderIllustration? {
-            val match = tag.matchEntire(text.trim()) ?: return null
-            val url = match.groupValues[1].replaceFirst("http://", "https://")
-            val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return null
-            if (uri.host.isNullOrBlank() || uri.userInfo != null) return null
-            return ReaderIllustration(url)
-        }
+        fun parse(text: String): ReaderIllustration? =
+            ChapterTextParser.parseIllustrationUrl(text)?.let(::ReaderIllustration)
     }
 }
 

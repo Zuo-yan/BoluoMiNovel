@@ -1,7 +1,12 @@
 package com.novelai.assistant.data.sf
 
+import android.content.ContentResolver
+import android.net.Uri
 import com.novelai.assistant.data.db.BookEntity
 import com.novelai.assistant.data.db.ChapterEntity
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.OutputStream
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
@@ -12,6 +17,27 @@ enum class BookExportFormat(val extension: String, val mime: String) {
 }
 
 object BookExporter {
+    suspend fun exportToUri(
+        contentResolver: ContentResolver,
+        uri: Uri,
+        book: BookEntity,
+        selected: List<ChapterEntity>,
+        format: BookExportFormat,
+        allowPartial: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val out = contentResolver.openOutputStream(uri, "wt")
+            ?: error("无法写入所选文件")
+        try {
+            out.use { write(it, book, selected, format, allowPartial) }
+        } catch (e: CancellationException) {
+            runCatching { contentResolver.delete(uri, null, null) }
+            throw e
+        } catch (e: Exception) {
+            runCatching { contentResolver.delete(uri, null, null) }
+            throw e
+        }
+    }
+
     fun write(out: OutputStream, book: BookEntity, selected: List<ChapterEntity>, format: BookExportFormat, allowPartial: Boolean) {
         require(selected.isNotEmpty()) { "没有可导出的章节" }
         val ordered = selected.sortedBy { it.chapterIndex }

@@ -31,19 +31,18 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -53,40 +52,32 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
-import com.novelai.assistant.data.tts.TtsPlayer
-import androidx.compose.ui.graphics.Color
 import com.novelai.assistant.ui.components.liquidGlass
 import dev.chrisbanes.haze.HazeState
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
  * 听书 App 内贴边吸附悬浮胶囊：
  * 1. 在阅读页外有听书进行时显示；
  * 2. 支持手指任意拖动，松手自动物理回弹吸附至屏幕最近侧边缘；
- * 3. 位置跨启动与屏幕缩放比例持久化（DataStore）；
+ * 3. 位置跨启动与屏幕缩放比例持久化（由调用方通过 onSavePosition 保存）；
  * 4. 主体点击进入专门听书模块，右侧内嵌播放/暂停快捷开关。
  */
 @Composable
 fun ListeningFloatingCapsule(
-    ttsPlayer: TtsPlayer,
-    prefs: ReadingPreferencesRepository,
+    isVisible: Boolean,
+    paused: Boolean,
+    bookTitle: String,
+    chapterTitle: String,
+    positionFrac: Pair<Float, Float>,
+    onTogglePlayPause: () -> Unit,
+    onSavePosition: (xFrac: Float, yFrac: Float) -> Unit,
     onOpenListening: () -> Unit,
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null
 ) {
-    val speaking by ttsPlayer.speaking.collectAsStateWithLifecycle()
-    val paused by ttsPlayer.paused.collectAsStateWithLifecycle()
-    val bookTitle by ttsPlayer.currentBookTitle.collectAsStateWithLifecycle()
-    val chapterTitle by ttsPlayer.currentChapterTitle.collectAsStateWithLifecycle()
-    val positionFrac by prefs.listenPillPosition.collectAsStateWithLifecycle(initialValue = 0.90f to 0.65f)
-
-    val isVisible = speaking || paused
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
 
     AnimatedVisibility(
         visible = isVisible,
@@ -142,8 +133,7 @@ fun ListeningFloatingCapsule(
                     .liquidGlass(
                         state = hazeState,
                         shape = RoundedCornerShape(25.dp),
-                        blurRadius = 28.dp,
-                        
+                        blurRadius = 28.dp
                     )
                     .pointerInput(screenWidthPx, screenHeightPx) {
                         detectDragGestures(
@@ -159,11 +149,10 @@ fun ListeningFloatingCapsule(
                                 val targetX = if (snapToLeft) minXPx else maxXPx
                                 offsetX = targetX
 
-                                val xFrac = if (snapToLeft) 0.02f else 0.98f
-                                val yFrac = ((offsetY - minYPx) / (maxYPx - minYPx)).coerceIn(0f, 1f)
-                                scope.launch {
-                                    prefs.setListenPillPosition(xFrac, yFrac)
-                                }
+                                val xFrac = if (snapToLeft) 0f else 1f
+                                val yRange = (maxYPx - minYPx).coerceAtLeast(1f)
+                                val yFrac = ((offsetY - minYPx) / yRange).coerceIn(0f, 1f)
+                                onSavePosition(xFrac, yFrac)
                             }
                         )
                     }
@@ -221,11 +210,7 @@ fun ListeningFloatingCapsule(
                     IconButton(
                         onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            if (paused) {
-                                ttsPlayer.resume()
-                            } else {
-                                ttsPlayer.pause()
-                            }
+                            onTogglePlayPause()
                         },
                         modifier = Modifier.size(36.dp)
                     ) {

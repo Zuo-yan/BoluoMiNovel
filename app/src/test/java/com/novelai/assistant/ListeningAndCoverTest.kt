@@ -3,6 +3,7 @@ package com.novelai.assistant
 import com.novelai.assistant.data.fetcher.CoverUrlExtractor
 import com.novelai.assistant.data.importer.BookImportManager
 import com.novelai.assistant.data.db.BookSourceType
+import com.novelai.assistant.data.text.ChapterTextParser
 import com.novelai.assistant.data.tts.ListeningNavBus
 import com.novelai.assistant.data.tts.TtsPlayer
 import com.novelai.assistant.data.tts.TtsTimerMode
@@ -67,7 +68,7 @@ class ListeningAndCoverTest {
                
             第三段内容。
         """.trimIndent()
-        val list = TtsPlayer.splitParagraphs(raw)
+        val list = ChapterTextParser.splitParagraphs(raw).filter { it.isNotEmpty() }
         assertEquals(3, list.size)
         assertEquals("第一段内容。", list[0])
         assertEquals("第二段内容。", list[1])

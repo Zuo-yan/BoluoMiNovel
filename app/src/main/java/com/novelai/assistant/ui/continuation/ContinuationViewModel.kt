@@ -221,6 +221,21 @@ class ContinuationViewModel @Inject constructor(
         }
     }
 
+    private suspend fun persistGeneratedChapter(text: String, defaultTitle: String): ChapterEntity {
+        val title = customTitle.value.trim().ifBlank { defaultTitle }
+        val chapter = bookRepository.saveGeneratedChapter(
+            bookId = bookId,
+            parentChapterId = if (isBranchMode) _parentChapterId.value else null,
+            title = title,
+            content = text,
+            promptUsed = instruction.value.trim().ifBlank { null },
+            originType = if (isBranchMode) ChapterOriginType.AI_BRANCH else ChapterOriginType.AI_CONTINUATION
+        )
+        retrievalService.evict(bookId)
+        _savedChapterId.value = chapter.id
+        return chapter
+    }
+
     /** 保存当前章节并自动将新章设为基准章节，支持连续无限续写 */
     fun saveAndContinue(autoGenerateNext: Boolean = false) {
         val text = _streamingText.value.trim()
@@ -232,17 +247,7 @@ class ContinuationViewModel @Inject constructor(
             } else {
                 "AI 续写 · 第 ${(_parentChapter.value?.chapterIndex ?: 0) + 2} 章"
             }
-            val title = customTitle.value.trim().ifBlank { defaultTitle }
-            val chapter = bookRepository.saveGeneratedChapter(
-                bookId = bookId,
-                parentChapterId = if (isBranchMode) _parentChapterId.value else null,
-                title = title,
-                content = text,
-                promptUsed = instruction.value.trim().ifBlank { null },
-                originType = if (isBranchMode) ChapterOriginType.AI_BRANCH else ChapterOriginType.AI_CONTINUATION
-            )
-            retrievalService.evict(bookId)
-            _savedChapterId.value = chapter.id
+            val chapter = persistGeneratedChapter(text, defaultTitle)
             continuousCount.value += 1
 
             // 关键：将刚刚生成保存的新章切换为下一章的前置基准
@@ -279,17 +284,7 @@ class ContinuationViewModel @Inject constructor(
             } else {
                 "AI 续写 · ${_parentChapter.value?.title?.take(12) ?: "新章"}"
             }
-            val title = customTitle.value.trim().ifBlank { defaultTitle }
-            val chapter = bookRepository.saveGeneratedChapter(
-                bookId = bookId,
-                parentChapterId = if (isBranchMode) _parentChapterId.value else null,
-                title = title,
-                content = text,
-                promptUsed = instruction.value.trim().ifBlank { null },
-                originType = if (isBranchMode) ChapterOriginType.AI_BRANCH else ChapterOriginType.AI_CONTINUATION
-            )
-            retrievalService.evict(bookId)
-            _savedChapterId.value = chapter.id
+            persistGeneratedChapter(text, defaultTitle)
             onSaved()
         }
     }

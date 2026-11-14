@@ -17,8 +17,8 @@ import javax.inject.Inject
 /** 应用级状态：新手引导完成标记、全局主题模式、全局听书悬浮组件与事件分发 */
 @HiltViewModel
 class AppViewModel @Inject constructor(
-    val readingPreferencesRepository: ReadingPreferencesRepository,
-    val ttsPlayer: TtsPlayer,
+    private val readingPreferencesRepository: ReadingPreferencesRepository,
+    private val ttsPlayer: TtsPlayer,
     val listeningNavBus: ListeningNavBus
 ) : ViewModel() {
 
@@ -30,6 +30,23 @@ class AppViewModel @Inject constructor(
     val appThemeMode: StateFlow<AppThemeMode> = readingPreferencesRepository.settings
         .map { it.appThemeMode }
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppThemeMode.FOLLOW_SYSTEM)
+
+    val ttsSpeaking: StateFlow<Boolean> = ttsPlayer.speaking
+    val ttsPaused: StateFlow<Boolean> = ttsPlayer.paused
+    val ttsBookId: StateFlow<String> = ttsPlayer.currentBookId
+    val ttsBookTitle: StateFlow<String> = ttsPlayer.currentBookTitle
+    val ttsChapterTitle: StateFlow<String> = ttsPlayer.currentChapterTitle
+
+    val listenPillPosition: StateFlow<Pair<Float, Float>> = readingPreferencesRepository.listenPillPosition
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.78f to 0.52f)
+
+    fun toggleTtsPlayPause() {
+        if (ttsPlayer.paused.value) ttsPlayer.resume() else ttsPlayer.pause()
+    }
+
+    fun saveListenPillPosition(xFrac: Float, yFrac: Float) {
+        viewModelScope.launch { readingPreferencesRepository.setListenPillPosition(xFrac, yFrac) }
+    }
 
     fun completeOnboarding() {
         viewModelScope.launch { readingPreferencesRepository.setOnboardingDone() }

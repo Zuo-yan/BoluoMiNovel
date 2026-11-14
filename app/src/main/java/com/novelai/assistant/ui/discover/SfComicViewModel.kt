@@ -24,8 +24,7 @@ data class SfComicDetailState(
     val currentChapterIndex: Int = 0,
     val loadedChapterIndex: Int? = null,
     val endReached: Boolean = false,
-    val readyForNextChapter: Boolean = false,
-    val endAnchorIndex: Int? = null
+    val readyForNextChapter: Boolean = false
 )
 
 @HiltViewModel
@@ -124,11 +123,6 @@ class SfComicViewModel @Inject constructor(
         if (!state.loading && state.pages.isNotEmpty() && !state.endReached) {
             detail.value = state.copy(endReached = true)
         }
-    }
-
-    fun setEndAnchorIndex(index: Int?) {
-        val state = detail.value
-        if (state.endAnchorIndex != index) detail.value = state.copy(endAnchorIndex = index)
     }
 
     fun armNextChapter() {

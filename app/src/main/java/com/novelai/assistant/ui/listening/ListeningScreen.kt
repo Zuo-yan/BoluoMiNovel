@@ -1,15 +1,12 @@
 package com.novelai.assistant.ui.listening
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -40,7 +37,6 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -65,10 +61,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -82,10 +76,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.tts.TtsTimerMode
 import com.novelai.assistant.data.tts.TtsVoiceOption
 import com.novelai.assistant.ui.bookshelf.BookCover
-import com.novelai.assistant.ui.components.AmbientBackdrop
-import com.novelai.assistant.ui.components.liquidGlass
-import com.novelai.assistant.ui.components.rememberGlassState
+import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,24 +89,23 @@ fun ListeningScreen(
 ) {
     val speaking by viewModel.speaking.collectAsStateWithLifecycle()
     val paused by viewModel.paused.collectAsStateWithLifecycle()
-    val position by viewModel.position.collectAsStateWithLifecycle()
     val rate by viewModel.rate.collectAsStateWithLifecycle()
     val currentBookId by viewModel.currentBookId.collectAsStateWithLifecycle()
     val currentBookTitle by viewModel.currentBookTitle.collectAsStateWithLifecycle()
     val currentChapterIndex by viewModel.currentChapterIndex.collectAsStateWithLifecycle()
     val currentChapterTitle by viewModel.currentChapterTitle.collectAsStateWithLifecycle()
-    val currentParagraphText by viewModel.currentParagraphText.collectAsStateWithLifecycle()
     val currentBook by viewModel.currentBook.collectAsStateWithLifecycle()
 
     val voices by viewModel.voices.collectAsStateWithLifecycle()
     val voiceName by viewModel.voiceName.collectAsStateWithLifecycle()
     val timerMode by viewModel.timerMode.collectAsStateWithLifecycle()
-    val timerRemainingSeconds by viewModel.timerRemainingSeconds.collectAsStateWithLifecycle()
 
     val haptics = LocalHapticFeedback.current
     var showVoiceSheet by remember { mutableStateOf(false) }
     var showTimerSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
+
+    val isPlaying = speaking && !paused
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -129,9 +121,9 @@ fun ListeningScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = if (speaking && !paused) "正在播放" else if (paused) "已暂停" else "未在播放",
+                            text = if (isPlaying) "正在播放" else if (paused) "已暂停" else "未在播放",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (speaking && !paused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -147,7 +139,7 @@ fun ListeningScreen(
                                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 onOpenReader(currentBookId, currentChapterIndex)
                             },
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             modifier = Modifier.padding(end = 8.dp)
                         ) {
                             Icon(
@@ -185,9 +177,10 @@ fun ListeningScreen(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                if (currentBook != null) {
+                val book = currentBook
+                if (book != null) {
                     BookCover(
-                        book = currentBook!!,
+                        book = book,
                         modifier = Modifier.fillMaxSize(),
                         corner = RoundedCornerShape(18.dp)
                     )
@@ -224,60 +217,17 @@ fun ListeningScreen(
             )
 
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = "第 ${currentChapterIndex + 1} 章 · 第 ${position + 1} 段",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            ChapterParagraphIndicator(
+                chapterIndex = currentChapterIndex,
+                positionFlow = viewModel.position
             )
 
-            // 当前朗读段落卡片（段落文本实时跟随）
+            // 当前朗读段落卡片（独立收集高频段落文本流，避免整页重组）
             Spacer(Modifier.height(20.dp))
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                border = androidx.compose.foundation.BorderStroke(
-                    0.5.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(130.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (speaking && !paused) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.outline
-                                )
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = if (speaking && !paused) "正在朗读：" else "当前段落：",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = currentParagraphText.ifBlank { "（无段落文本或已停止）" },
-                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
+            CurrentParagraphCard(
+                isPlaying = isPlaying,
+                paragraphTextFlow = viewModel.currentParagraphText
+            )
 
             // 核心播放控制大按钮
             Spacer(Modifier.height(28.dp))
@@ -286,7 +236,6 @@ fun ListeningScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 上一章
                 IconButton(
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -301,8 +250,6 @@ fun ListeningScreen(
                     )
                 }
 
-                // 播放 / 暂停 大圆钮
-                val isPlaying = speaking && !paused
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary,
@@ -324,7 +271,6 @@ fun ListeningScreen(
                     }
                 }
 
-                // 下一章
                 IconButton(
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -339,7 +285,6 @@ fun ListeningScreen(
                     )
                 }
 
-                // 停止听书
                 IconButton(
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -364,7 +309,6 @@ fun ListeningScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // 语速胶囊
                 ListenOptionPill(
                     icon = Icons.Rounded.Speed,
                     title = "语速",
@@ -373,23 +317,13 @@ fun ListeningScreen(
                     onClick = { showSpeedSheet = true }
                 )
 
-                // 定时胶囊
-                val timerLabel = when {
-                    timerRemainingSeconds != null -> formatRemainingTime(timerRemainingSeconds)
-                    timerMode == TtsTimerMode.END_OF_CHAPTER -> "本章停"
-                    timerMode != TtsTimerMode.OFF -> timerMode.label
-                    else -> "关闭"
-                }
-                ListenOptionPill(
-                    icon = Icons.Rounded.Timer,
-                    title = "定时",
-                    value = timerLabel,
+                TimerOptionPill(
+                    timerMode = timerMode,
+                    remainingSecondsFlow = viewModel.timerRemainingSeconds,
                     modifier = Modifier.weight(1f),
-                    highlight = timerMode != TtsTimerMode.OFF,
                     onClick = { showTimerSheet = true }
                 )
 
-                // 音色胶囊
                 val selectedVoice = voices.firstOrNull { it.name == voiceName }
                 val voiceLabel = selectedVoice?.label ?: "系统默认"
                 ListenOptionPill(
@@ -405,25 +339,21 @@ fun ListeningScreen(
         }
     }
 
-    // 语速弹层
     if (showSpeedSheet) {
         ModalBottomSheet(onDismissRequest = { showSpeedSheet = false }) {
             SpeedSelectorSheet(
                 currentRate = rate,
-                onSelectRate = {
-                    viewModel.setRate(it)
-                },
+                onSelectRate = { viewModel.setRate(it) },
                 onDismiss = { showSpeedSheet = false }
             )
         }
     }
 
-    // 定时停止弹层
     if (showTimerSheet) {
         ModalBottomSheet(onDismissRequest = { showTimerSheet = false }) {
             TimerSelectorSheet(
                 currentMode = timerMode,
-                remainingSeconds = timerRemainingSeconds,
+                remainingSecondsFlow = viewModel.timerRemainingSeconds,
                 onSelectMode = {
                     viewModel.setTimerMode(it)
                     showTimerSheet = false
@@ -432,7 +362,6 @@ fun ListeningScreen(
         }
     }
 
-    // 音色选择弹层
     if (showVoiceSheet) {
         ModalBottomSheet(onDismissRequest = { showVoiceSheet = false }) {
             VoiceSelectorSheet(
@@ -442,12 +371,101 @@ fun ListeningScreen(
                     viewModel.setVoice(name)
                     showVoiceSheet = false
                 },
-                onAudition = { name ->
-                    viewModel.auditionVoice(name)
-                }
+                onAudition = { name -> viewModel.auditionVoice(name) }
             )
         }
     }
+}
+
+@Composable
+private fun ChapterParagraphIndicator(
+    chapterIndex: Int,
+    positionFlow: StateFlow<Int>
+) {
+    val position by positionFlow.collectAsStateWithLifecycle()
+    Text(
+        text = "第 ${chapterIndex + 1} 章 · 第 ${position + 1} 段",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun CurrentParagraphCard(
+    isPlaying: Boolean,
+    paragraphTextFlow: StateFlow<String>
+) {
+    val currentParagraphText by paragraphTextFlow.collectAsStateWithLifecycle()
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = BorderStroke(
+            0.5.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isPlaying) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline
+                        )
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (isPlaying) "正在朗读：" else "当前段落：",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = currentParagraphText.ifBlank { "（无段落文本或已停止）" },
+                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimerOptionPill(
+    timerMode: TtsTimerMode,
+    remainingSecondsFlow: StateFlow<Int?>,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val remainingSeconds by remainingSecondsFlow.collectAsStateWithLifecycle()
+    val timerLabel = when {
+        remainingSeconds != null -> formatRemainingTime(remainingSeconds)
+        timerMode == TtsTimerMode.END_OF_CHAPTER -> "本章停"
+        timerMode != TtsTimerMode.OFF -> timerMode.label
+        else -> "关闭"
+    }
+    ListenOptionPill(
+        icon = Icons.Rounded.Timer,
+        title = "定时",
+        value = timerLabel,
+        modifier = modifier,
+        highlight = timerMode != TtsTimerMode.OFF,
+        onClick = onClick
+    )
 }
 
 @Composable
@@ -464,7 +482,7 @@ private fun ListenOptionPill(
         shape = RoundedCornerShape(16.dp),
         color = if (highlight) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             0.5.dp,
             if (highlight) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
             else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
@@ -548,7 +566,7 @@ private fun SpeedSelectorSheet(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             presetRates.forEach { rate ->
-                val isSelected = kotlin.math.abs(sliderValue - rate) < 0.04f
+                val isSelected = abs(sliderValue - rate) < 0.04f
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
@@ -584,19 +602,21 @@ private fun SpeedSelectorSheet(
 @Composable
 private fun TimerSelectorSheet(
     currentMode: TtsTimerMode,
-    remainingSeconds: Int?,
+    remainingSecondsFlow: StateFlow<Int?>,
     onSelectMode: (TtsTimerMode) -> Unit
 ) {
+    val remainingSeconds by remainingSecondsFlow.collectAsStateWithLifecycle()
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 12.dp)
     ) {
         Text("定时停止朗读", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        if (remainingSeconds != null && remainingSeconds > 0) {
+        val remaining = remainingSeconds
+        if (remaining != null && remaining > 0) {
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "正在倒计时：${formatRemainingTime(remainingSeconds)}",
+                text = "正在倒计时：${formatRemainingTime(remaining)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -641,8 +661,6 @@ private fun VoiceSelectorSheet(
     onSelectVoice: (String?) -> Unit,
     onAudition: (String?) -> Unit
 ) {
-    val haptics = LocalHapticFeedback.current
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -662,53 +680,18 @@ private fun VoiceSelectorSheet(
                 .fillMaxWidth()
                 .height(380.dp)
         ) {
-            // 系统默认音色选项
-            item {
-                val isDefault = (selectedVoiceName == null)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onSelectVoice(null)
-                        }
-                        .padding(horizontal = 10.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = "系统默认音色",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (isDefault) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "使用系统 TTS 默认语音",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = { onAudition(null) },
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Icon(Icons.Rounded.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("试听", style = MaterialTheme.typography.labelSmall)
-                    }
-
-                    if (isDefault) {
-                        Spacer(Modifier.width(10.dp))
-                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
+            item(key = "__system_default__") {
+                VoiceOptionRow(
+                    title = "系统默认音色",
+                    subtitle = "使用系统 TTS 默认语音",
+                    isSelected = selectedVoiceName == null,
+                    onSelect = { onSelectVoice(null) },
+                    onAudition = { onAudition(null) }
+                )
             }
 
             if (voices.isEmpty()) {
-                item {
+                item(key = "__empty_voices__") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -725,69 +708,88 @@ private fun VoiceSelectorSheet(
                 }
             }
 
-            items(voices) { voice ->
-                val isSelected = (voice.name == selectedVoiceName)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onSelectVoice(voice.name)
-                        }
-                        .padding(horizontal = 10.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = voice.label,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                            if (voice.isNetworkRequired) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "在线",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.tertiary,
-                                    modifier = Modifier
-                                        .background(
-                                            MaterialTheme.colorScheme.tertiaryContainer,
-                                            RoundedCornerShape(4.dp)
-                                        )
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            text = voice.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = { onAudition(voice.name) },
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Icon(Icons.Rounded.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("试听", style = MaterialTheme.typography.labelSmall)
-                    }
-
-                    if (isSelected) {
-                        Spacer(Modifier.width(10.dp))
-                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
+            items(voices, key = { it.name }) { voice ->
+                VoiceOptionRow(
+                    title = voice.label,
+                    subtitle = voice.name,
+                    isSelected = voice.name == selectedVoiceName,
+                    isNetworkRequired = voice.isNetworkRequired,
+                    onSelect = { onSelectVoice(voice.name) },
+                    onAudition = { onAudition(voice.name) }
+                )
             }
         }
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun VoiceOptionRow(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    isNetworkRequired: Boolean = false,
+    onSelect: () -> Unit,
+    onAudition: () -> Unit
+) {
+    val haptics = LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onSelect()
+            }
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+                if (isNetworkRequired) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "在线",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.tertiaryContainer,
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        OutlinedButton(
+            onClick = onAudition,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.height(34.dp)
+        ) {
+            Icon(Icons.Rounded.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("试听", style = MaterialTheme.typography.labelSmall)
+        }
+
+        if (isSelected) {
+            Spacer(Modifier.width(10.dp))
+            Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 

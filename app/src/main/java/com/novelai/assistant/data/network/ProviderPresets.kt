@@ -28,4 +28,35 @@ object ProviderPresets {
             ProviderPlatform("legacy", "混元大模型 · 原平台", "https://api.hunyuan.cloud.tencent.com/v1", ProviderKind.OPENAI_COMPATIBLE))),
         ProviderPreset("custom", "自定义 / 本地服务", listOf(ProviderPlatform("custom", "自行填写服务地址", "", ProviderKind.OPENAI_COMPATIBLE)))
     )
+
+    fun recommendedModels(
+        presetId: String,
+        baseUrl: String,
+        selectedModel: String = ""
+    ): List<String> {
+        val host = runCatching { java.net.URI(baseUrl).host }.getOrNull().orEmpty()
+        val candidates = when {
+            presetId == "deepseek" || host.contains("deepseek") ->
+                listOf("deepseek-chat", "deepseek-reasoner")
+            presetId == "anthropic" || host.contains("anthropic") ->
+                listOf("claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229")
+            presetId == "openai" || host.contains("openai") ->
+                listOf("gpt-4o", "gpt-4o-mini", "o3-mini", "gpt-4.5-preview")
+            presetId == "google" || host.contains("googleapis") ->
+                listOf("gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash")
+            presetId == "moonshot" || host.contains("moonshot") ->
+                listOf("moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k")
+            presetId == "zai" || host.contains("bigmodel.cn") || host.contains("z.ai") ->
+                listOf("glm-4-plus", "glm-4-flash", "glm-4-long")
+            presetId == "aliyun" || host.contains("aliyuncs.com") ->
+                listOf("qwen-max", "qwen-plus", "qwen-turbo")
+            else ->
+                if (selectedModel.isNotBlank()) listOf(selectedModel) else emptyList()
+        }
+        return if (selectedModel.isNotBlank() && !candidates.contains(selectedModel)) {
+            listOf(selectedModel) + candidates
+        } else {
+            candidates
+        }
+    }
 }

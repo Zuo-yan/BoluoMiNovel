@@ -24,6 +24,8 @@ enum class ReaderBgTheme(val label: String) {
 
 enum class AppThemeMode { FOLLOW_SYSTEM, LIGHT, DARK }
 
+data class ReadingAnchor(val paragraph: Int = 0, val character: Int = 0, val scroll: Int = 0)
+
 data class ReadingSettings(
     val fontSizeSp: Int = 18,
     val lineSpacingMultiplier: Float = 1.65f,
@@ -37,8 +39,35 @@ data class ReadingSettings(
 
 @Singleton
 class ReadingPreferencesRepository @Inject constructor(
-    private val dataStore: DataStore<Preferences>
+    private val dataStore: DataStore<Preferences>,
+    @ApplicationContext private val context: Context
 ) {
+    private val positions by lazy {
+        context.getSharedPreferences("reader_positions", Context.MODE_PRIVATE)
+    }
+
+    fun getLastChapterIndex(bookId: String): Int =
+        positions.getInt("$bookId:lastChapter", -1)
+
+    fun getChapterAnchor(chapterId: String): ReadingAnchor = ReadingAnchor(
+        paragraph = positions.getInt("$chapterId:paragraph", 0),
+        character = positions.getInt("$chapterId:character", 0),
+        scroll = positions.getInt("$chapterId:scroll", 0)
+    )
+
+    fun saveChapterAnchor(
+        bookId: String,
+        chapterId: String,
+        chapterIndex: Int,
+        anchor: ReadingAnchor
+    ) {
+        positions.edit()
+            .putInt("$chapterId:paragraph", anchor.paragraph)
+            .putInt("$chapterId:character", anchor.character)
+            .putInt("$chapterId:scroll", anchor.scroll)
+            .putInt("$bookId:lastChapter", chapterIndex)
+            .apply()
+    }
     private object Keys {
         val fontSize = intPreferencesKey("reader_font_size")
         val lineSpacing = floatPreferencesKey("reader_line_spacing")

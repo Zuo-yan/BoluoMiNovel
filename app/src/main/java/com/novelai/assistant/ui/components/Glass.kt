@@ -1,9 +1,5 @@
 package com.novelai.assistant.ui.components
 
-import android.graphics.RenderEffect
-import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,76 +15,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-
-/**
- * 物理透镜折射 AGSL 着色器（Android 13+ / API 33+ 原生硬件着色器）
- *
- * 核心光学公式：
- * 1. 利用圆角超椭圆（SDF: Signed Distance Field）计算凸透镜表面法线向量；
- * 2. 对底层内容进行基于法线的 UV 弯曲采样（Displacement Refraction），产生真实物理折射与放大畸变；
- * 3. 菲涅尔视角纯白反射高光（Fresnel Rim Light）。
- */
-private const val LIQUID_GLASS_AGSL = """
-    uniform shader compositedImage;
-    uniform float2 iResolution;
-    uniform float iCornerRadius;
-    uniform float iRefraction;
-
-    float sdRoundedBox(float2 p, float2 b, float r) {
-        float2 q = abs(p) - b + r;
-        return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
-    }
-
-    half4 main(float2 fragCoord) {
-        float2 halfRes = iResolution * 0.5;
-        float2 p = fragCoord - halfRes;
-        float d = sdRoundedBox(p, halfRes, iCornerRadius);
-
-        if (d > 0.0) {
-            return half4(0.0);
-        }
-
-        // 凸透镜折射带：边缘 26px 范围内产生纯净透镜弯曲
-        float edgeWidth = min(26.0, min(iResolution.x, iResolution.y) * 0.25);
-        float edgeFactor = smoothstep(-edgeWidth, 0.0, d);
-
-        // 计算法线向量
-        float eps = 1.0;
-        float2 grad = float2(
-            sdRoundedBox(p + float2(eps, 0.0), halfRes, iCornerRadius) - sdRoundedBox(p - float2(eps, 0.0), halfRes, iCornerRadius),
-            sdRoundedBox(p + float2(0.0, eps), halfRes, iCornerRadius) - sdRoundedBox(p - float2(0.0, eps), halfRes, iCornerRadius)
-        );
-        float2 normal = normalize(grad + 0.0001);
-
-        // 纯净物理折射 UV 位移（向透镜厚度中心弯曲）
-        float2 disp = -normal * edgeFactor * iRefraction;
-        float2 sampleXY = clamp(fragCoord + disp, float2(1.0), iResolution - float2(1.0));
-        half4 color = compositedImage.eval(sampleXY);
-
-        // 菲涅尔切面高光（纯白主光源入射）
-        float2 lightDir = normalize(float2(-0.4, -0.9));
-        float spec = pow(max(0.0, dot(normal, lightDir)), 5.0) * edgeFactor * 0.35;
-        color.rgb += half3(spec) * color.a;
-
-        return color;
-    }
-"""
-
-class GlassStateHolder {
-    val state: HazeState = HazeState()
-}
 
 @Composable
 fun rememberGlassState(): HazeState = remember { HazeState() }
@@ -129,11 +62,11 @@ fun AmbientBackdrop(
  * 液态玻璃核心修饰符 (Liquid Glass)
  *
  * 遵循极简高级光学质感（去除动态彩色流光，专注通透与物理折射）：
- * 1. 【纯净透镜折射】Android 13+ (API 33+) 优先走 AGSL 原生凸透镜法线弯曲；
- * 2. 【通透水晶质感】浅色 36% 纯净水晶透光，深色 50% 黑曜玻璃，Haze 实时模糊透出底层内容；
- * 3. 【次表面高光】纯白中性光晕，呈现水滴凸透镜的物理厚度与立体微弧；
- * 4. 【双层物理边缘】顶部 1.2dp 锐利纯白高光切面，底部全反射折射暗边，勾勒玻璃边界。
+ * 1. 【通透磨砂底色】浅色 82% / 深色 85% 半透明表面，避免底部透出伪影；
+ * 2. 【次表面高光】纯白中性光晕，呈现水滴凸透镜的物理厚度与立体微弧；
+ * 3. 【双层物理边缘】顶部 1.2dp 锐利纯白高光切面，底部微弱折射暗边，勾勒玻璃边界。
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun Modifier.liquidGlass(
     state: HazeState? = null,
@@ -145,21 +78,15 @@ fun Modifier.liquidGlass(
 ): Modifier {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
-    // 玻璃底色：已停用 Haze 实时模糊（其在屏幕底部会透出白色矩形伪影），
-    // 改为稳定的半透明磨砂底色，浅色 82% / 深色 85%，保证底层内容不会穿透干扰。
     val resolvedTint = tint ?: if (isDark) {
         Color(0xFF1C1C24).copy(alpha = 0.85f)
     } else {
         Color(0xFFF7F8FC).copy(alpha = 0.82f)
     }
 
-    val hazeModifier = Modifier.background(resolvedTint, shape)
-
-    // 注：已移除 AGSL 折射 RenderEffect —— 它会在玻璃底部边缘产生白色条块伪影
-
     return this
         .clip(shape)
-        .then(hazeModifier)
+        .background(resolvedTint, shape)
         .drawWithCache {
             val width = size.width
             val height = size.height
@@ -251,50 +178,3 @@ fun Modifier.glassEffect(
     shape = shape,
     blurRadius = blurRadius
 )
-
-/** 无 Haze 上下文时的静态液态玻璃卡 */
-@Composable
-fun Modifier.staticLiquidGlass(
-    tint: Color? = null,
-    shape: Shape = RoundedCornerShape(26.dp)
-): Modifier = this.liquidGlass(
-    state = null,
-    tint = tint,
-    shape = shape
-)
-
-/** 静态玻璃卡（兼容旧接口） */
-fun Modifier.staticGlass(tint: Color, shape: Shape): Modifier = this
-    .clip(shape)
-    .background(tint, shape)
-    .border(
-        width = 0.75.dp,
-        brush = Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.5f), Color.White.copy(alpha = 0.1f))
-        ),
-        shape = shape
-    )
-
-/**
- * Android 13+ (API 33+) 原生 AGSL 物理透镜折射隔离辅助类
- * 独立于静态类加载器，防止在 API 32 及以下（如 Android 9 模拟器）发生 NoClassDefFoundError
- */
-private object AgslRefractionHelper {
-    private var cachedShader: Any? = null
-
-    @Composable
-    fun createModifier(cornerRadius: Dp): Modifier {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return Modifier
-        return runCatching {
-            val shader = (cachedShader as? RuntimeShader) ?: RuntimeShader(LIQUID_GLASS_AGSL).also { cachedShader = it }
-            Modifier.graphicsLayer {
-                try {
-                    shader.setFloatUniform("iResolution", size.width, size.height)
-                    shader.setFloatUniform("iCornerRadius", cornerRadius.toPx())
-                    shader.setFloatUniform("iRefraction", 12f)
-                    renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "compositedImage").asComposeRenderEffect()
-                } catch (_: Throwable) {}
-            }
-        }.getOrDefault(Modifier)
-    }
-}

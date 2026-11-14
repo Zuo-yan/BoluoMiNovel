@@ -5,9 +5,10 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Constraints
+import com.novelai.assistant.data.text.ChapterTextParser
 
 /** 页内片段：某段落的可见部分 */
-data class ReadingAnchor(val paragraph: Int = 0, val character: Int = 0, val scroll: Int = 0)
+typealias ReadingAnchor = com.novelai.assistant.data.prefs.ReadingAnchor
 
 data class PageFragment(val paraIndex: Int, val text: String, val startOffset: Int = 0)
 
@@ -132,8 +133,5 @@ object Paginator {
      * rows too; filtering blanks would shift every later badge onto the wrong
      * paragraph. Consumers skip blank paragraphs while rendering/speaking.
      */
-    fun splitParagraphs(content: String): List<String> =
-        content.replace("\r\n", "\n").replace('\r', '\n')
-            .split('\n')
-            .map { it.trim() }
+    fun splitParagraphs(content: String): List<String> = ChapterTextParser.splitParagraphs(content)
 }

@@ -9,7 +9,7 @@ import android.speech.tts.UtteranceProgressListener
 import com.novelai.assistant.data.db.ChapterEntity
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
 import com.novelai.assistant.data.repository.BookRepository
-import com.novelai.assistant.ui.reader.Paginator
+import com.novelai.assistant.data.text.ChapterTextParser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -108,14 +108,14 @@ class TtsPlayer @Inject constructor(
     private val _currentParagraphText = MutableStateFlow("")
     val currentParagraphText: StateFlow<String> = _currentParagraphText.asStateFlow()
 
-    // 听书定时：状态与倒计时收敛在全局播放器，离开阅读页后依然生效
-    private val _timerMode = MutableStateFlow(TtsTimerMode.OFF)
-    val timerMode: StateFlow<TtsTimerMode> = _timerMode.asStateFlow()
+    /** 当前章节总段落数 */
+    private val _totalParagraphs = MutableStateFlow(0)
+    val totalParagraphs: StateFlow<Int> = _totalParagraphs.asStateFlow()
 
-    private val _timerRemainingSeconds = MutableStateFlow<Int?>(null)
-    val timerRemainingSeconds: StateFlow<Int?> = _timerRemainingSeconds.asStateFlow()
-
-    private var timerJob: Job? = null
+    // 听书定时：委托给 TtsSleepTimer 管理状态与倒计时
+    private val sleepTimer = TtsSleepTimer(playerScope) { stop() }
+    val timerMode: StateFlow<TtsTimerMode> = sleepTimer.timerMode
+    val timerRemainingSeconds: StateFlow<Int?> = sleepTimer.timerRemainingSeconds
 
     // 播放队列与索引
     private var queue: List<TtsQueueItem> = emptyList()
@@ -129,6 +129,10 @@ class TtsPlayer @Inject constructor(
     // 外部（如当前活跃的 ViewModel）注册的回调
     private var chapterEndCallback: (() -> Unit)? = null
     private var utteranceCounter = 0L
+    private var activeAuditionId: String? = null
+    private var pendingSavedVoice: String? = null
+    private var userModifiedRate = false
+    private var userModifiedVoice = false
 
     // WakeLock 守护锁，防止息屏后 CPU 挂起
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -168,39 +172,44 @@ class TtsPlayer @Inject constructor(
 
     init {
         tts = TextToSpeech(context) { status ->
-            initOk = (status == TextToSpeech.SUCCESS)
-            if (initOk) {
-                val audioAttrs = android.media.AudioAttributes.Builder()
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .build()
-                tts?.setAudioAttributes(audioAttrs)
+            mainHandler.post {
+                initOk = (status == TextToSpeech.SUCCESS)
+                if (initOk) {
+                    val audioAttrs = android.media.AudioAttributes.Builder()
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .build()
+                    tts?.setAudioAttributes(audioAttrs)
 
-                val result = tts?.setLanguage(Locale.SIMPLIFIED_CHINESE)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    tts?.setLanguage(Locale.getDefault())
+                    val result = tts?.setLanguage(Locale.SIMPLIFIED_CHINESE)
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        tts?.setLanguage(Locale.getDefault())
+                    }
+                    tts?.setSpeechRate(_rate.value)
+                    loadVoices()
+                    val voiceToApply = _voiceName.value ?: pendingSavedVoice
+                    pendingSavedVoice = null
+                    if (voiceToApply != null && applyVoiceToEngine(voiceToApply)) {
+                        _voiceName.value = voiceToApply
+                    }
+                    _ready.value = true
+                } else {
+                    isFallbackMode = true
+                    _ready.value = true
                 }
-                tts?.setSpeechRate(_rate.value)
-                loadVoices()
-            }
-            if (initOk) {
-                _ready.value = true
-            } else {
-                isFallbackMode = true
-                _ready.value = true
             }
         }
 
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                acquireWakeLock()
-                _speaking.value = true
-                _paused.value = false
-                if (utteranceId != null) {
-                    utteranceMap[utteranceId]?.let { item ->
-                        _position.value = item.paraIndex
-                        _currentParagraphText.value = rawParagraphs.getOrNull(item.paraIndex).orEmpty()
-                    }
+                mainHandler.post {
+                    if (utteranceId?.startsWith(AUDITION_UTTERANCE_PREFIX) == true) return@post
+                    val item = utteranceId?.let { utteranceMap[it] } ?: return@post
+                    acquireWakeLock()
+                    _speaking.value = true
+                    _paused.value = false
+                    _position.value = item.paraIndex
+                    _currentParagraphText.value = rawParagraphs.getOrNull(item.paraIndex).orEmpty()
                 }
             }
 
@@ -220,16 +229,34 @@ class TtsPlayer @Inject constructor(
             override fun onError(utteranceId: String?, errorCode: Int) {
                 mainHandler.post { handleUtteranceCompletion(utteranceId) }
             }
+
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                mainHandler.post {
+                    if (utteranceId?.startsWith(AUDITION_UTTERANCE_PREFIX) == true) {
+                        finishAudition(utteranceId)
+                    }
+                }
+            }
         })
 
         // 从偏好中恢复上次语速与音色（进程重启后依然生效）
         playerScope.launch {
             val savedRate = prefs.currentTtsSpeed()
-            _rate.value = savedRate
-            runCatching { tts?.setSpeechRate(savedRate) }
+            if (!userModifiedRate) {
+                _rate.value = savedRate
+                if (initOk) {
+                    runCatching { tts?.setSpeechRate(savedRate) }
+                }
+            }
             val savedVoice = runCatching { prefs.currentTtsVoice() }.getOrNull()
-            if (savedVoice != null && applyVoiceToEngine(savedVoice)) {
-                _voiceName.value = savedVoice
+            if (!userModifiedVoice && savedVoice != null) {
+                if (initOk) {
+                    if (applyVoiceToEngine(savedVoice)) {
+                        _voiceName.value = savedVoice
+                    }
+                } else {
+                    pendingSavedVoice = savedVoice
+                }
             }
         }
     }
@@ -257,6 +284,7 @@ class TtsPlayer @Inject constructor(
 
     /** 调节语速，立即生效 */
     fun setRate(rate: Float) {
+        userModifiedRate = true
         val clamped = rate.coerceIn(0.5f, 3.0f)
         _rate.value = clamped
         tts?.setSpeechRate(clamped)
@@ -306,6 +334,9 @@ class TtsPlayer @Inject constructor(
      * 正在朗读时打断当前句，从当前段落开头以新音色重读；暂停中则在恢复时生效。
      */
     fun setVoice(name: String?) {
+        userModifiedVoice = true
+        pendingSavedVoice = null
+        activeAuditionId = null
         _voiceName.value = name
         playerScope.launch { prefs.setTtsVoice(name) }
         applyVoiceToEngine(name)
@@ -314,42 +345,33 @@ class TtsPlayer @Inject constructor(
         }
     }
 
-    /** 试听指定音色：结束当前听书后播放固定短句 */
+    /** 试听指定音色：隔离试听 utterance，不改变朗读状态，试听结束后恢复已选音色 */
     fun auditionVoice(name: String?) {
         if (!initOk) return
         stop()
+        val auditionId = "$AUDITION_UTTERANCE_PREFIX${++utteranceCounter}"
+        activeAuditionId = auditionId
         applyVoiceToEngine(name)
-        tts?.speak(AUDITION_TEXT, TextToSpeech.QUEUE_FLUSH, null, "audition_" + utteranceCounter++)
+        if (tts?.speak(AUDITION_TEXT, TextToSpeech.QUEUE_FLUSH, null, auditionId) != TextToSpeech.SUCCESS) {
+            finishAudition(auditionId)
+        }
+    }
+
+    private fun finishAudition(utteranceId: String?) {
+        if (utteranceId == null || utteranceId == activeAuditionId) {
+            activeAuditionId = null
+            applyVoiceToEngine(_voiceName.value)
+        }
     }
 
     /** 设置听书定时：倒计时归零或听完本章后自动停止朗读 */
     fun setTimerMode(mode: TtsTimerMode) {
-        timerJob?.cancel()
-        _timerMode.value = mode
-        if (mode.minutes > 0) {
-            val totalSeconds = mode.minutes * 60
-            _timerRemainingSeconds.value = totalSeconds
-            timerJob = playerScope.launch {
-                var remaining = totalSeconds
-                while (remaining > 0) {
-                    delay(1000)
-                    remaining -= 1
-                    _timerRemainingSeconds.value = remaining
-                }
-                stop()
-                resetTimer()
-            }
-        } else {
-            _timerRemainingSeconds.value = null
-        }
+        sleepTimer.setMode(mode)
     }
 
     /** 重置定时状态 */
     fun resetTimer() {
-        timerJob?.cancel()
-        timerJob = null
-        _timerMode.value = TtsTimerMode.OFF
-        _timerRemainingSeconds.value = null
+        sleepTimer.reset()
     }
 
     /**
@@ -377,8 +399,14 @@ class TtsPlayer @Inject constructor(
         playbackGeneration++
         chapterEndCallback = onChapterEnd
         rawParagraphs = paragraphs
+        _totalParagraphs.value = paragraphs.size
         _currentChapterIndex.value = chapterIndex
         _currentChapterTitle.value = chapterTitle
+
+        if (activeAuditionId != null) {
+            activeAuditionId = null
+            applyVoiceToEngine(_voiceName.value)
+        }
 
         // 请求音频焦点
         audioFocusManager.requestFocus()
@@ -397,13 +425,15 @@ class TtsPlayer @Inject constructor(
         _paused.value = false
 
         if (queue.isEmpty()) {
-            _speaking.value = false
             onChapterFinished()
             return
         }
 
         // 核心双重缓冲机制：首段使用 QUEUE_FLUSH 启动，紧随其后的下一段使用 QUEUE_ADD 提前排队
         feedTtsPipeline(isInitial = true)
+        if (_speaking.value) {
+            TtsMediaManager.startService(context)
+        }
     }
 
     /**
@@ -422,7 +452,6 @@ class TtsPlayer @Inject constructor(
                         _currentParagraphText.value = current.text
                         delay(2000L)
                         if (current.isLastChunkOfChapter) {
-                            _speaking.value = false
                             onChapterFinished()
                             break
                         }
@@ -451,30 +480,24 @@ class TtsPlayer @Inject constructor(
 
     /** 处理 utterance 播放完成 */
     private fun handleUtteranceCompletion(utteranceId: String?) {
+        if (utteranceId?.startsWith(AUDITION_UTTERANCE_PREFIX) == true) {
+            finishAudition(utteranceId)
+            return
+        }
         if (_paused.value) return
-        val item = utteranceId?.let { utteranceMap.remove(it) }
-
-        if (item == null && queue.isNotEmpty()) return
-        if (item?.isLastChunkOfChapter == true) {
+        val item = utteranceId?.let { utteranceMap.remove(it) } ?: return
+        if (item.isLastChunkOfChapter) {
             // 整章读完
-            _speaking.value = false
             onChapterFinished()
         } else {
-            if (item == null && queue.isEmpty()) {
-                // 试听短句等引擎外播放结束：收尾播放态
-                _speaking.value = false
-                releaseWakeLock()
-                audioFocusManager.abandonFocus()
-            } else {
-                // 读完当前块，继续补充管道中的下一块
-                feedTtsPipeline(isInitial = false)
-            }
+            // 读完当前块，继续补充管道中的下一块
+            feedTtsPipeline(isInitial = false)
         }
     }
 
     /** 本章读完后的处理：优先调用 ViewModel 外部回调，若无回调则走后台自治连播 */
     private fun onChapterFinished() {
-        if (_timerMode.value == TtsTimerMode.END_OF_CHAPTER) {
+        if (timerMode.value == TtsTimerMode.END_OF_CHAPTER) {
             stop()
             resetTimer()
             return
@@ -488,91 +511,49 @@ class TtsPlayer @Inject constructor(
     }
 
     /** 后台自治切下一章并持续朗读 */
-    fun playNextChapterAuto() {
-        val list = chaptersCache
-        val nextIdx = _currentChapterIndex.value + 1
-        if (list.isNotEmpty() && nextIdx in list.indices) {
-            val nextChapter = list[nextIdx]
-            val requestGeneration = playbackGeneration
-            val bId = _currentBookId.value
-            val bTitle = _currentBookTitle.value
-
-            playerScope.launch {
-                // 保存阅读进度到数据库
-                runCatching {
-                    bookRepository.saveProgress(bId, nextIdx, list.size)
-                }
-
-                // 拆分段落并播放
-                val loaded = try { bookRepository.readableChapter(nextChapter.id) }
-                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (_: Exception) { if (playbackGeneration == requestGeneration) stop(); return@launch }
-                if (playbackGeneration != requestGeneration) return@launch
-                val paragraphs = Paginator.splitParagraphs(loaded.content)
-                play(
-                    paragraphs = paragraphs,
-                    startIndex = 0,
-                    chapterIndex = nextIdx,
-                    chapterTitle = nextChapter.title,
-                    onChapterEnd = null
-                )
-
-                // 更新系统前台通知栏
-                TtsMediaManager.startOrUpdateService(
-                    context = context,
-                    bookId = bId,
-                    bookTitle = bTitle,
-                    chapterTitle = nextChapter.title,
-                    chapterIndex = nextIdx,
-                    totalChapters = list.size,
-                    isPlaying = true,
-                    isPaused = false
-                )
-            }
-        } else {
-            // 到达最后一章，自动停止
-            stop()
-            TtsMediaManager.stopService(context)
-        }
-    }
+    fun playNextChapterAuto() = playChapterByOffset(delta = 1, stopAtBoundary = true)
 
     /** 后台自治切上一章 */
-    fun playPreviousChapterAuto() {
-        val list = chaptersCache
-        val prevIdx = _currentChapterIndex.value - 1
-        if (list.isNotEmpty() && prevIdx in list.indices) {
-            val prevChapter = list[prevIdx]
-            val requestGeneration = playbackGeneration
-            val bId = _currentBookId.value
-            val bTitle = _currentBookTitle.value
+    fun playPreviousChapterAuto() = playChapterByOffset(delta = -1, stopAtBoundary = false)
 
-            playerScope.launch {
-                runCatching {
-                    bookRepository.saveProgress(bId, prevIdx, list.size)
-                }
-                val loaded = try { bookRepository.readableChapter(prevChapter.id) }
-                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (_: Exception) { if (playbackGeneration == requestGeneration) stop(); return@launch }
-                if (playbackGeneration != requestGeneration) return@launch
-                val paragraphs = Paginator.splitParagraphs(loaded.content)
-                play(
-                    paragraphs = paragraphs,
-                    startIndex = 0,
-                    chapterIndex = prevIdx,
-                    chapterTitle = prevChapter.title,
-                    onChapterEnd = null
-                )
-                TtsMediaManager.startOrUpdateService(
-                    context = context,
-                    bookId = bId,
-                    bookTitle = bTitle,
-                    chapterTitle = prevChapter.title,
-                    chapterIndex = prevIdx,
-                    totalChapters = list.size,
-                    isPlaying = true,
-                    isPaused = false
-                )
+    private fun playChapterByOffset(delta: Int, stopAtBoundary: Boolean) {
+        val list = chaptersCache
+        val targetIdx = _currentChapterIndex.value + delta
+        if (list.isEmpty() || targetIdx !in list.indices) {
+            if (stopAtBoundary) {
+                stop()
             }
+            return
+        }
+
+        val targetChapter = list[targetIdx]
+        val requestGeneration = playbackGeneration
+        val bId = _currentBookId.value
+
+        playerScope.launch {
+            runCatching {
+                bookRepository.saveProgress(bId, targetIdx, list.size)
+            }
+
+            val loaded = try {
+                bookRepository.readableChapter(targetChapter.id)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (playbackGeneration == requestGeneration) stop()
+                return@launch
+            }
+            if (playbackGeneration != requestGeneration) return@launch
+
+            val paragraphs = ChapterTextParser.splitParagraphs(loaded.content)
+            play(
+                paragraphs = paragraphs,
+                startIndex = 0,
+                chapterIndex = targetIdx,
+                chapterTitle = targetChapter.title,
+                onChapterEnd = null
+            )
+            TtsMediaManager.startService(context)
         }
     }
 
@@ -590,7 +571,6 @@ class TtsPlayer @Inject constructor(
         _speaking.value = false
         tts?.stop()
         releaseWakeLock()
-        TtsMediaManager.syncPlayerState(this, isPlaying = true, isPaused = true)
     }
 
     /** 暂停朗读（用户主动暂停或永久丢失焦点） */
@@ -604,7 +584,6 @@ class TtsPlayer @Inject constructor(
         tts?.stop()
         releaseWakeLock()
         audioFocusManager.abandonFocus()
-        TtsMediaManager.syncPlayerState(this, isPlaying = true, isPaused = true)
     }
 
     /** 恢复朗读 */
@@ -615,7 +594,7 @@ class TtsPlayer @Inject constructor(
         audioFocusManager.requestFocus()
         acquireWakeLock()
         playFromCurrentPosition()
-        TtsMediaManager.syncPlayerState(this, isPlaying = true, isPaused = false)
+        TtsMediaManager.startService(context)
     }
 
     /** 停止朗读并清理资源 */
@@ -629,9 +608,14 @@ class TtsPlayer @Inject constructor(
         utteranceMap.clear()
         enqueuedCursor = 0
         rawParagraphs = emptyList()
+        _totalParagraphs.value = 0
         _currentParagraphText.value = ""
         chapterEndCallback = null
         tts?.stop()
+        if (activeAuditionId != null) {
+            activeAuditionId = null
+            applyVoiceToEngine(_voiceName.value)
+        }
         releaseWakeLock()
         audioFocusManager.abandonFocus()
         TtsMediaManager.stopService(context)
@@ -639,6 +623,7 @@ class TtsPlayer @Inject constructor(
 
     /** 释放引擎 */
     fun shutdown() {
+        resetTimer()
         stop()
         tts?.shutdown()
         tts = null
@@ -648,6 +633,7 @@ class TtsPlayer @Inject constructor(
 
     companion object {
         private const val MAX_CHUNK = 1500
+        private const val AUDITION_UTTERANCE_PREFIX = "audition_"
         private const val AUDITION_TEXT = "你好，这是当前音色的试听效果"
 
         internal fun buildQueue(paragraphs: List<String>, startIndex: Int, nextId: (Int, Int) -> String): List<TtsQueueItem> {
@@ -655,19 +641,13 @@ class TtsPlayer @Inject constructor(
             for (pIdx in startIndex.coerceAtLeast(0) until paragraphs.size) {
                 val paragraph = paragraphs[pIdx]
                 if (paragraph.isBlank()) continue
-                val text = if (com.novelai.assistant.ui.reader.ReaderIllustration.parse(paragraph) != null) "插图" else paragraph
+                val text = if (ChapterTextParser.isIllustration(paragraph)) "插图" else paragraph
                 splitLongParagraph(text).forEachIndexed { cIdx, chunk ->
                     if (chunk.isNotBlank()) items.add(TtsQueueItem(pIdx, cIdx, chunk, false, nextId(pIdx, cIdx)))
                 }
             }
             if (items.isNotEmpty()) items[items.lastIndex] = items.last().copy(isLastChunkOfChapter = true)
             return items
-        }
-
-        fun splitParagraphs(content: String): List<String> {
-            return content.lines()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
         }
 
         fun splitLongParagraph(text: String): List<String> {

@@ -3,7 +3,6 @@ package com.novelai.assistant.ui.listening
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelai.assistant.data.db.BookEntity
-import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
 import com.novelai.assistant.data.repository.BookRepository
 import com.novelai.assistant.data.tts.TtsPlayer
 import com.novelai.assistant.data.tts.TtsTimerMode
@@ -21,8 +20,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ListeningViewModel @Inject constructor(
     private val ttsPlayer: TtsPlayer,
-    private val bookRepository: BookRepository,
-    private val prefs: ReadingPreferencesRepository
+    private val bookRepository: BookRepository
 ) : ViewModel() {
 
     val speaking: StateFlow<Boolean> = ttsPlayer.speaking

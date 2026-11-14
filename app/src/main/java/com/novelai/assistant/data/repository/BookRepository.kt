@@ -1,31 +1,50 @@
 package com.novelai.assistant.data.repository
 
-import android.content.Context
+import android.content.ContentResolver
 import android.net.Uri
-import com.novelai.assistant.data.db.AiChatRecordEntity
+import androidx.room.withTransaction
 import com.novelai.assistant.data.db.BookDao
 import com.novelai.assistant.data.db.BookEntity
+import com.novelai.assistant.data.db.BookSourceType
 import com.novelai.assistant.data.db.ChapterDao
 import com.novelai.assistant.data.db.ChapterEntity
-import com.novelai.assistant.data.db.CategoryDao
-import com.novelai.assistant.data.db.CategoryEntity
-import com.novelai.assistant.data.db.ChatDao
 import com.novelai.assistant.data.db.ChapterOriginType
+import com.novelai.assistant.data.db.NovelDatabase
+import com.novelai.assistant.data.fetcher.DESKTOP_UA
 import com.novelai.assistant.data.importer.BookImportManager
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.novelai.assistant.data.sf.BookExportFormat
+import com.novelai.assistant.data.sf.BookExporter
+import com.novelai.assistant.data.sf.SfLibraryRepository
+import com.novelai.assistant.data.sf.SfParagraphCommentSummary
+import com.novelai.assistant.data.sf.SfSessionRepository
+import com.novelai.assistant.di.ApplicationScope
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsBytes
+import io.ktor.http.HttpHeaders
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class BookRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
+    private val database: NovelDatabase,
     private val bookDao: BookDao,
     private val chapterDao: ChapterDao,
     private val importManager: BookImportManager,
-    private val sfLibrary: com.novelai.assistant.data.sf.SfLibraryRepository,
-    private val sfSession: com.novelai.assistant.data.sf.SfSessionRepository
+    private val httpClient: HttpClient,
+    private val sfLibrary: SfLibraryRepository,
+    private val sfSession: SfSessionRepository,
+    private val contentResolver: ContentResolver,
+    @ApplicationScope private val appScope: CoroutineScope
 ) {
     fun observeBooks(): Flow<List<BookEntity>> = bookDao.observeAll()
     fun observeBook(id: String): Flow<BookEntity?> = bookDao.observeById(id)
@@ -38,8 +57,9 @@ class BookRepository @Inject constructor(
     suspend fun readableChapter(id: String): ChapterEntity = sfLibrary.readable(id)
     suspend fun readableChapterWithComments(
         id: String
-    ): Pair<ChapterEntity, List<com.novelai.assistant.data.sf.SfParagraphCommentSummary>> =
+    ): Pair<ChapterEntity, List<SfParagraphCommentSummary>> =
         sfLibrary.readableWithComments(id)
+
     suspend fun remoteParagraphComments(
         chapterId: String,
         sort: String,
@@ -55,50 +75,50 @@ class BookRepository @Inject constructor(
     suspend fun importFetched(
         title: String,
         author: String,
-        sourceType: com.novelai.assistant.data.db.BookSourceType,
+        sourceType: BookSourceType,
         chapters: List<Pair<String, String>>,
         coverUrl: String? = null,
         sourceBookId: String? = null
     ): String {
-        val bookId = java.util.UUID.randomUUID().toString()
+        val bookId = UUID.randomUUID().toString()
         val sourcePathValue = when (sourceType) {
-            com.novelai.assistant.data.db.BookSourceType.FANQIE ->
+            BookSourceType.FANQIE ->
                 sourceBookId?.let { "fanqienovel.com/page/$it" }
-            com.novelai.assistant.data.db.BookSourceType.BOLUOBAO ->
+            BookSourceType.BOLUOBAO ->
                 sourceBookId?.let { "book.sfacg.com/Novel/$it/MainIndex/" }
             else -> null
         } ?: title
         val coverPath = coverUrl?.let { url ->
-            runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    downloadBytes(url)?.let { importManager.storeCoverBytes(bookId, it) }
-                }
-            }.getOrNull()
-        }
-        bookDao.insert(
-            BookEntity(
-                id = bookId,
-                title = title,
-                author = author,
-                coverUri = coverPath,
-                sourcePath = sourcePathValue,
-                sourceType = sourceType,
-                totalChapters = chapters.size,
-                createdAt = System.currentTimeMillis()
-            )
-        )
-        chapterDao.insertAll(
-            chapters.mapIndexed { i, (t, c) ->
-                ChapterEntity(
-                    id = UUID.randomUUID().toString(),
-                    bookId = bookId,
-                    chapterIndex = i,
-                    title = t,
-                    content = c,
-                    originType = ChapterOriginType.ORIGINAL
-                )
+            downloadBytes(url)?.let { bytes ->
+                withContext(Dispatchers.IO) { importManager.storeCoverBytes(bookId, bytes) }
             }
-        )
+        }
+        database.withTransaction {
+            bookDao.insert(
+                BookEntity(
+                    id = bookId,
+                    title = title,
+                    author = author,
+                    coverUri = coverPath,
+                    sourcePath = sourcePathValue,
+                    sourceType = sourceType,
+                    totalChapters = chapters.size,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            chapterDao.insertAll(
+                chapters.mapIndexed { i, (t, c) ->
+                    ChapterEntity(
+                        id = UUID.randomUUID().toString(),
+                        bookId = bookId,
+                        chapterIndex = i,
+                        title = t,
+                        content = c,
+                        originType = ChapterOriginType.ORIGINAL
+                    )
+                }
+            )
+        }
         return bookId
     }
 
@@ -117,19 +137,26 @@ class BookRepository @Inject constructor(
         bookDao.update(book.copy(coverUri = null))
     }
 
-    private fun downloadBytes(url: String): ByteArray? = runCatching {
-        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 20_000
-        conn.setRequestProperty("User-Agent", com.novelai.assistant.data.fetcher.DESKTOP_UA)
-        if (conn.responseCode !in 200..299) return@runCatching null
-        val bytes = conn.inputStream.use { it.readBytes() }
-        if (bytes.isEmpty() || bytes.size > 8 * 1024 * 1024) null else bytes
-    }.getOrNull()
+    private suspend fun downloadBytes(url: String): ByteArray? = withTimeoutOrNull(COVER_TIMEOUT_MS) {
+        try {
+            val response = httpClient.get(url) {
+                header(HttpHeaders.UserAgent, DESKTOP_UA)
+            }
+            if (response.status.value !in 200..299) return@withTimeoutOrNull null
+            val bytes = response.bodyAsBytes()
+            if (bytes.isEmpty() || bytes.size > MAX_COVER_BYTES) null else bytes
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     suspend fun deleteBook(bookId: String) {
-        chapterDao.deleteByBook(bookId)
-        bookDao.delete(bookId)
+        database.withTransaction {
+            chapterDao.deleteByBook(bookId)
+            bookDao.delete(bookId)
+        }
     }
 
     suspend fun saveProgress(bookId: String, chapterIndex: Int, totalChapters: Int) {
@@ -137,18 +164,40 @@ class BookRepository @Inject constructor(
         bookDao.updateProgress(bookId, chapterIndex, percent, System.currentTimeMillis())
     }
 
+    fun saveProgressAsync(bookId: String, chapterIndex: Int, totalChapters: Int) {
+        appScope.launch {
+            runCatching { saveProgress(bookId, chapterIndex, totalChapters) }
+        }
+    }
+
+    suspend fun exportChapterToUri(
+        uri: Uri,
+        book: BookEntity,
+        chapter: ChapterEntity,
+        format: BookExportFormat
+    ) {
+        BookExporter.exportToUri(
+            contentResolver = contentResolver,
+            uri = uri,
+            book = book,
+            selected = listOf(chapter),
+            format = format,
+            allowPartial = false
+        )
+    }
+
     suspend fun updateCategory(bookId: String, category: String) = bookDao.updateCategory(bookId, category)
     suspend fun resetCategoryBooks(categoryName: String) = bookDao.resetCategoryBooks(categoryName)
 
     suspend fun updateChapter(chapter: ChapterEntity) = chapterDao.update(chapter)
 
-    suspend fun deleteChapter(chapterId: String) = chapterDao.delete(chapterId)
-
     suspend fun deleteChapter(bookId: String, chapterId: String) {
-        chapterDao.delete(chapterId)
-        val remaining = chapterDao.countByBook(bookId)
-        bookDao.getById(bookId)?.let {
-            bookDao.update(it.copy(totalChapters = remaining))
+        database.withTransaction {
+            chapterDao.delete(chapterId)
+            val remaining = chapterDao.countByBook(bookId)
+            bookDao.getById(bookId)?.let {
+                bookDao.update(it.copy(totalChapters = remaining))
+            }
         }
     }
 
@@ -160,7 +209,7 @@ class BookRepository @Inject constructor(
         content: String,
         promptUsed: String?,
         originType: ChapterOriginType
-    ): ChapterEntity {
+    ): ChapterEntity = database.withTransaction {
         val nextIndex = (chapterDao.maxChapterIndex(bookId) ?: -1) + 1
         val chapter = ChapterEntity(
             id = UUID.randomUUID().toString(),
@@ -176,7 +225,7 @@ class BookRepository @Inject constructor(
         bookDao.getById(bookId)?.let {
             bookDao.update(it.copy(totalChapters = chapterDao.countByBook(bookId)))
         }
-        return chapter
+        chapter
     }
 
     suspend fun appendToChapter(chapterId: String, extra: String) {
@@ -210,29 +259,9 @@ class BookRepository @Inject constructor(
         }
         return branchChain.reversed()
     }
-}
 
-@Singleton
-class ChatRepository @Inject constructor(
-    private val chatDao: ChatDao
-) {
-    fun observeChat(bookId: String): Flow<List<AiChatRecordEntity>> = chatDao.observeByBook(bookId)
-
-    suspend fun recentMessages(bookId: String, limit: Int = 12): List<AiChatRecordEntity> =
-        chatDao.getRecent(bookId, limit)
-
-    suspend fun save(record: AiChatRecordEntity) = chatDao.insert(record)
-
-    suspend fun clear(bookId: String) = chatDao.clearByBook(bookId)
-}
-
-@Singleton
-class CategoryRepository @Inject constructor(
-    private val categoryDao: CategoryDao
-) {
-    fun observeCategories(): Flow<List<CategoryEntity>> = categoryDao.observeAll()
-    suspend fun addCategory(name: String) =
-        categoryDao.insert(CategoryEntity(id = UUID.randomUUID().toString(), name = name.trim()))
-    suspend fun deleteCategory(id: String) = categoryDao.delete(id)
-    suspend fun deleteCategoryByName(name: String) = categoryDao.deleteByName(name)
+    private companion object {
+        const val COVER_TIMEOUT_MS = 20_000L
+        const val MAX_COVER_BYTES = 8 * 1024 * 1024
+    }
 }

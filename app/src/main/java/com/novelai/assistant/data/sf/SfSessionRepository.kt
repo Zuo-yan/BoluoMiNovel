@@ -103,8 +103,6 @@ class SfSessionRepository @Inject constructor(
     suspend fun fetchOfficialTags() = api.fetchOfficialTags()
     suspend fun fetchCategories() = api.fetchCategories()
     suspend fun browseFiltered(filter: SfBrowseFilter, page: Int = 1, sort: String = "viewtimes") = api.browseFiltered(filter, page, sort = sort)
-    suspend fun browseByTag(sysTagId: Int, page: Int = 1) = api.browseByTag(sysTagId, page)
-    suspend fun browseByMultiTags(sysTagIds: List<Int>, page: Int = 1) = api.browseByMultiTags(sysTagIds, page)
     suspend fun addToCloudShelf(novelId: String, pocketId: String = "-1") = api.addToCloudShelf(cookie, novelId, pocketId)
     suspend fun novelComments(novelId: String, page: Int = 1) = api.novelComments(novelId, page)
     suspend fun newRecommendations(page: Int = 1) = api.newRecommendations(page)
