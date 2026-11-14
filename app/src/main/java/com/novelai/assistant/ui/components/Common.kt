@@ -2,6 +2,7 @@ package com.novelai.assistant.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,10 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.shadow
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,21 +33,23 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.novelai.assistant.ui.theme.NovelColors
 
-/** iOS 大标题页头 */
+/** iOS / 平板自适应大标题页头 */
 @Composable
 fun LargeTitleHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    horizontalPadding: Dp = LocalAdaptiveMetrics.current.horizontalPadding,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = horizontalPadding, vertical = 10.dp),
         verticalAlignment = Alignment.Bottom
     ) {
         Column(Modifier.weight(1f)) {
@@ -72,34 +71,75 @@ fun LargeTitleHeader(
     }
 }
 
-/** iOS 分组卡片 */
+/** iOS / MagicOS 分组卡片（默认启用液态玻璃卡片，可选退回纯 Surface） */
 @Composable
 fun SectionCard(
     modifier: Modifier = Modifier,
     title: String? = null,
     footer: String? = null,
+    horizontalPadding: Dp = LocalAdaptiveMetrics.current.horizontalPadding,
+    useGlass: Boolean = true,
+    actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    Column(modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-        if (title != null) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
-            )
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = horizontalPadding)) {
+        if (title != null || actionLabel != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 6.dp, end = 4.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (title != null) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                if (actionLabel != null && onActionClick != null) {
+                    Text(
+                        text = actionLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable(onClick = onActionClick)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
         }
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-            border = androidx.compose.foundation.BorderStroke(
-                0.5.dp,
-                MaterialTheme.colorScheme.outlineVariant
-            )
-        ) {
-            Column { content() }
+        if (useGlass) {
+            LiquidGlassBox(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 22.dp,
+                widgetSize = GlassWidgetSize.BIG,
+                sceneType = GlassSceneType.GENERAL,
+                interactive = false,
+                skipRenderLayer = true,
+                shadowElevation = 6.dp,
+                borderWidth = 0.7.dp
+            ) {
+                Column(Modifier.fillMaxWidth()) { content() }
+            }
+        } else {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                border = BorderStroke(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outlineVariant
+                )
+            ) {
+                Column(Modifier.fillMaxWidth()) { content() }
+            }
         }
         if (footer != null) {
             Text(

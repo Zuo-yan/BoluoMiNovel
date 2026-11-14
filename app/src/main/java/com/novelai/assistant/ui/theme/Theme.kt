@@ -6,6 +6,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.novelai.assistant.ui.components.ProvideAdaptiveMetrics
 
 private val LightColors = lightColorScheme(
     primary = NovelColors.Indigo,
@@ -46,21 +47,21 @@ private val DarkColors = darkColorScheme(
     onSecondaryContainer = Color(0xFFD6EBF0),
     tertiary = Color(0xFFEDA0C8),
     tertiaryContainer = Color(0xFF6E3156),
-    background = Color(0xFF0F0F14),
-    onBackground = Color(0xFFE8E8EE),
-    surface = Color(0xFF1A1A21),
-    onSurface = Color(0xFFE8E8EE),
-    surfaceVariant = Color(0xFF26262E),
-    onSurfaceVariant = Color(0xFFA9A9B4),
-    surfaceContainerLowest = Color(0xFF101015),
-    surfaceContainerLow = Color(0xFF16161D),
-    surfaceContainer = Color(0xFF1C1C24),
-    surfaceContainerHigh = Color(0xFF23232C),
-    surfaceContainerHighest = Color(0xFF2B2B36),
-    surfaceBright = Color(0xFF353542),
-    surfaceDim = Color(0xFF101015),
-    outline = Color(0xFF4A4A55),
-    outlineVariant = Color(0xFF2E2E38),
+    background = NovelColors.GlassCanvasDark,
+    onBackground = NovelColors.GlassOnDarkText,
+    surface = NovelColors.GlassSurfaceDark,
+    onSurface = NovelColors.GlassOnDarkText,
+    surfaceVariant = Color(0xFF232530),
+    onSurfaceVariant = Color(0xFFAEAEB9),
+    surfaceContainerLowest = Color(0xFF0A0A0F),
+    surfaceContainerLow = Color(0xFF12131A),
+    surfaceContainer = Color(0xFF181A22),
+    surfaceContainerHigh = Color(0xFF20222C),
+    surfaceContainerHighest = Color(0xFF292B37),
+    surfaceBright = Color(0xFF333644),
+    surfaceDim = Color(0xFF0C0D12),
+    outline = Color(0xFF4A4C58),
+    outlineVariant = Color(0xFF2B2D38),
     error = Color(0xFFFF7B81)
 )
 
@@ -69,10 +70,12 @@ fun NovelAITheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = AppTypography,
-        shapes = NovelShapes,
-        content = content
-    )
+    ProvideAdaptiveMetrics {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColors else LightColors,
+            typography = AppTypography,
+            shapes = NovelShapes,
+            content = content
+        )
+    }
 }

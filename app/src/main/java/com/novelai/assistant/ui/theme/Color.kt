@@ -18,6 +18,15 @@ object NovelColors {
     val BadgeOriginal = Color(0xFF8E8E93)   // [原] 灰
     val BadgeAi = Color(0xFF5856D6)         // [AI] 靛蓝
     val BadgeBranch = Color(0xFFFF6482)     // [分] 粉
+
+    // 液态玻璃表面与高对比度文本色（遵循深色 #F2F2F7 高亮可读规范）
+    val GlassCanvasDark = Color(0xFF0A0A0F)
+    val GlassSurfaceDark = Color(0xFF15161E)
+    val GlassCanvasLight = Color(0xFFF2F3F7)
+    val GlassSurfaceLight = Color(0xFFFFFFFF)
+    val GlassOnDarkText = Color(0xFFF2F2F7)
+    val GlassOnLightText = Color(0xFF1C1C22)
+    val GlassAccentBlueDark = Color(0xFF66B2FF)
 }
 
 // 阅读器背景主题

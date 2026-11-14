@@ -12,3 +12,6 @@ val NovelShapes = Shapes(
     large = RoundedCornerShape(22.dp),
     extraLarge = RoundedCornerShape(28.dp)
 )
+
+/** 液态玻璃胶囊圆角 */
+val CapsuleShape = RoundedCornerShape(percent = 50)
