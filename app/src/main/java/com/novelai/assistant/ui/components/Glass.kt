@@ -272,8 +272,13 @@ fun LiquidGlassBox(
     val isLiquidEnabled = rememberHonorLiquidGlassEnabled()
     val resolvedShape = shape ?: RoundedCornerShape(cornerRadius)
     var honorRenderFailed by remember { mutableStateOf(false) }
+    // 滚动列表 / 静态内容卡片（skipRenderLayer = true 且非 IMMERSIVE 浮层）不使用原生 HnVisualEffectLayout：
+    // AndroidView 在 LazyColumn / LazyVerticalGrid 中会脱离滚动裁剪区并遮挡顶部搜索栏与筛选胶囊，改用纯 Compose 光学玻璃。
+    val useNativeHonorEffect = isHonorSupported &&
+        !honorRenderFailed &&
+        (!skipRenderLayer || sceneType == GlassSceneType.IMMERSIVE)
 
-    if (isHonorSupported && !honorRenderFailed) {
+    if (useNativeHonorEffect) {
         HonorGlassDiagnostics.activeMode =
             if (isLiquidEnabled) "荣耀原生液态玻璃 (MagicOS 11)" else "荣耀原生磨砂玻璃"
         val density = LocalDensity.current
@@ -371,9 +376,12 @@ fun LiquidGlassBox(
             content()
         }
     } else {
-        HonorGlassDiagnostics.activeMode =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "Compose Haze + AGSL 液态玻璃"
-            else "Compose Haze 光学玻璃"
+        if (!isHonorSupported || honorRenderFailed) {
+            HonorGlassDiagnostics.activeMode =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "Compose Haze + AGSL 液态玻璃"
+                else "Compose Haze 光学玻璃"
+        }
+        val useBlurState = if (skipRenderLayer && sceneType != GlassSceneType.IMMERSIVE) null else state
         val shadowModifier = if (showShadow && shadowElevation > 0.dp) {
             Modifier.shadow(
                 elevation = shadowElevation,
@@ -388,7 +396,7 @@ fun LiquidGlassBox(
             modifier = modifier
                 .then(shadowModifier)
                 .liquidGlass(
-                    state = state,
+                    state = useBlurState,
                     tint = tint,
                     shape = resolvedShape,
                     blurRadius = blurRadius,
@@ -623,7 +631,12 @@ fun Modifier.liquidGlass(
             )
         )
     } else {
-        Modifier.background(resolvedTint, shape)
+        val staticBg = tint ?: if (isDark) {
+            Color(0xFF141418).copy(alpha = 0.84f)
+        } else {
+            Color(0xFFFFFFFF).copy(alpha = 0.90f)
+        }
+        Modifier.background(staticBg, shape)
     }
 
     return this
@@ -1131,8 +1144,8 @@ fun GlassSectionCard(
         val cardBrush = if (isDark) {
             Brush.verticalGradient(
                 listOf(
-                    Color(0xFF1F212B).copy(alpha = 0.86f),
-                    Color(0xFF15171F).copy(alpha = 0.82f)
+                    Color(0xFF16161B).copy(alpha = 0.88f),
+                    Color(0xFF101014).copy(alpha = 0.84f)
                 )
             )
         } else {
