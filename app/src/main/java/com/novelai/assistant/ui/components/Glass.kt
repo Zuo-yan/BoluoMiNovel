@@ -291,7 +291,12 @@ fun LiquidGlassBox(
                 layoutHolder[0]?.let { layout ->
                     runCatching {
                         val copy = MotionEvent.obtain(motionEvent)
-                        layout.dispatchTouchEvent(copy)
+                        val effect = layout.visualEffect
+                        if (effect != null) {
+                            effect.onTouchEvent(true, copy)
+                        } else {
+                            layout.dispatchTouchEvent(copy)
+                        }
                         copy.recycle()
                     }
                 }
@@ -421,12 +426,11 @@ private fun applyHonorGlassSpecSafe(view: HnVisualEffectLayout, spec: HonorGlass
         view.setCornerRadiusWithClipChildren(spec.radiusPx.toFloat(), true)
         view.setVisualEffect(effect)
 
-        // 仅当不需要交互物理动效时禁用点击标记；interactive=true 需保留 clickable=true，
-        // 否则 HnVisualEffectLayout.dispatchTouchEvent 中 handled=false 会扼杀所有形变/流光动效。
-        if (!spec.interactive) {
-            view.isClickable = false
-            view.isFocusable = false
-        }
+        // 始终禁止 HnVisualEffectLayout 拦截/消费点击事件，防止 AndroidViewHolder 吞掉外层 Compose .clickable
+        // （如添加提供商弹窗中的关闭按钮 X）；交互流光与形变由 touchForwardModifier 调用 effect.onTouchEvent(true, copy) 驱动。
+        view.isClickable = false
+        view.isFocusable = false
+        view.setOnTouchListener { _, _ -> false }
         true
     } catch (t: Throwable) {
         HonorGlassDiagnostics.lastError = t.javaClass.simpleName + ":" + (t.message ?: "")
@@ -728,7 +732,7 @@ half4 main(float2 fragCoord) {
 
     if (d > 0.0) {
         half4 base = composable.eval(fragCoord);
-        float shadowAlpha = exp(-d * 0.24) * (0.18 + 0.10 * uPressed);
+        float shadowAlpha = exp(-d * 0.28) * (0.05 + 0.07 * uPressed);
         half outA = clamp(base.a + shadowAlpha * (1.0 - base.a), 0.0, 1.0);
         return half4(clamp(base.rgb, 0.0, outA), outA);
     }
@@ -754,28 +758,29 @@ half4 main(float2 fragCoord) {
     half4 refracted = half4(cR.r, cG.g, cB.b, cG.a);
 
     float verticalGrad = clamp(-p.y / max(uLensHalfSize.y, 1.0) * 0.5 + 0.5, 0.0, 1.0);
-    float bodyAlpha = uIsDark > 0.5 ? (0.30 + 0.10 * uPressed) : (0.58 + 0.12 * uPressed);
-    half3 darkTop = half3(0.26, 0.30, 0.38);
-    half3 darkBot = half3(0.14, 0.16, 0.22);
+    // 高通透水滴透镜主体：避免灰雾遮挡底层色彩，保留微弱冷光与按压弹性明度
+    float bodyAlpha = uIsDark > 0.5 ? (0.06 + 0.05 * uPressed) : (0.15 + 0.08 * uPressed);
+    half3 darkTop = half3(0.46, 0.52, 0.62);
+    half3 darkBot = half3(0.22, 0.26, 0.34);
     half3 bodyColor = uIsDark > 0.5 ? mix(darkBot, darkTop, verticalGrad) : half3(0.99, 0.995, 1.0);
-    float centerGlow = (1.0 - edgeFactor * 0.75) * (0.18 + 0.10 * uPressed);
+    float centerGlow = (1.0 - edgeFactor * 0.75) * (0.10 + 0.10 * uPressed);
     bodyColor = mix(bodyColor, half3(uTintColor.rgb), centerGlow);
 
-    // Src-over: refracted items OVER convex liquid glass lens body (premultiplied)
+    // Src-over: refracted items OVER crystal-clear liquid glass lens body (premultiplied)
     half3 overRgb = refracted.rgb + bodyColor * bodyAlpha * (1.0 - refracted.a);
     half overA = refracted.a + bodyAlpha * (1.0 - refracted.a);
 
     // 235-degree directional Fresnel specular rim + upper convex meniscus highlight
     float2 lightDir = normalize(float2(-0.57, -0.82));
     float dirSpec = clamp(dot(n, lightDir) * 0.5 + 0.5, 0.0, 1.0);
-    float rimMask = smoothstep(3.2, 0.0, inward);
+    float rimMask = smoothstep(3.0, 0.0, inward);
     float topMeniscus = smoothstep(-uLensHalfSize.y, -uLensHalfSize.y * 0.25, p.y);
-    float meniscusArc = (1.0 - topMeniscus) * (1.0 - edgeFactor * 0.65) * 0.22;
-    float innerSheen = pow(edgeFactor, 1.85) * (0.28 + 0.28 * dirSpec);
+    float meniscusArc = (1.0 - topMeniscus) * (1.0 - edgeFactor * 0.65) * 0.16;
+    float innerSheen = pow(edgeFactor, 1.95) * (0.24 + 0.28 * dirSpec);
     float specAlpha = clamp(
-        rimMask * (0.44 + 0.44 * dirSpec + 0.18 * uPressed) + innerSheen * 0.44 + meniscusArc,
+        rimMask * (0.50 + 0.46 * dirSpec + 0.18 * uPressed) + innerSheen * 0.38 + meniscusArc,
         0.0,
-        0.94
+        0.96
     );
     half3 specColor = uIsDark > 0.5 ? half3(0.88, 0.94, 1.0) : half3(1.0, 1.0, 1.0);
     float specWeight = uIsDark > 0.5 ? 0.78 : 0.92;
@@ -1006,15 +1011,15 @@ fun LiquidGlassLensTrack(
                             brush = if (isDark) {
                                 Brush.verticalGradient(
                                     listOf(
-                                        Color.White.copy(alpha = 0.20f + 0.06f * pressedProgress),
-                                        Color.White.copy(alpha = 0.09f)
+                                        Color.White.copy(alpha = 0.09f + 0.05f * pressedProgress),
+                                        Color.White.copy(alpha = 0.03f)
                                     )
                                 )
                             } else {
                                 Brush.verticalGradient(
                                     listOf(
-                                        Color.White.copy(alpha = 0.80f),
-                                        Color.White.copy(alpha = 0.56f)
+                                        Color.White.copy(alpha = 0.26f),
+                                        Color.White.copy(alpha = 0.14f)
                                     )
                                 )
                             },
@@ -1552,6 +1557,7 @@ fun GlassNavigationRail(
         widgetSize = GlassWidgetSize.SMALL,
         sceneType = GlassSceneType.IMMERSIVE,
         interactive = true,
+        transparencyLevel = 0.96f,
         shadowElevation = 14.dp
     ) {
         Column(
@@ -1616,6 +1622,7 @@ fun GlassBottomDock(
         widgetSize = GlassWidgetSize.SMALL,
         sceneType = GlassSceneType.IMMERSIVE,
         interactive = true,
+        transparencyLevel = 0.96f,
         shadowElevation = 14.dp
     ) {
         LiquidGlassLensTrack(
