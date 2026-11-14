@@ -1,12 +1,14 @@
 package com.novelai.assistant.ui.components
 
 import android.content.Context
+import android.graphics.Outline
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewOutlineProvider
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -120,6 +122,9 @@ enum class GlassGradientDirection { TOP_TO_BOTTOM, BOTTOM_TO_TOP }
  * 由 NovelApp（或 ReaderScreen 独立子作用域）提供，供所有浮层/侧栏/胶囊自动采样。
  */
 val LocalGlassHazeState = staticCompositionLocalOf<HazeState?> { null }
+
+/** 标记当前子树已位于悬浮玻璃弹窗/表单内，避免内部次级胶囊按钮再次嵌套 HnVisualEffectLayout 产生白色方块伪影 */
+val LocalInsideGlassOverlay = staticCompositionLocalOf { false }
 
 private data class HonorGlassSpec(
     val radiusPx: Int,
@@ -424,6 +429,14 @@ private fun applyHonorGlassSpecSafe(view: HnVisualEffectLayout, spec: HonorGlass
         view.setVisualEffect(null)
         view.setRadius(spec.radiusPx)
         view.setCornerRadiusWithClipChildren(spec.radiusPx.toFloat(), true)
+        view.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(v: View, outline: Outline) {
+                val maxR = minOf(v.width, v.height) / 2f
+                val r = spec.radiusPx.toFloat().coerceAtMost(maxR).coerceAtLeast(0f)
+                outline.setRoundRect(0, 0, v.width, v.height, r)
+            }
+        }
+        view.clipToOutline = true
         view.setVisualEffect(effect)
 
         // 始终禁止 HnVisualEffectLayout 拦截/消费点击事件，防止 AndroidViewHolder 吞掉外层 Compose .clickable
@@ -567,6 +580,8 @@ fun AmbientBackdrop(
         bloom(Offset(w * 0.18f, h * 0.08f), w * 0.80f, accent, a1)
         bloom(Offset(w * 0.88f, h * 0.38f), w * 0.68f, secondary, a2)
         bloom(Offset(w * 0.45f, h * 0.92f), w * 0.85f, accent, a3)
+        // 为平板左侧悬浮导航轨提供柔和透光背景衬托，增强光学折射层次感
+        bloom(Offset(w * 0.05f, h * 0.48f), minOf(w, h) * 0.34f, accent, a2 * 0.95f)
     }
 }
 
@@ -634,18 +649,22 @@ fun Modifier.liquidGlass(
 
             val outline = shape.createOutline(size, layoutDirection, this)
             val innerBevelBrush = if (isDark) {
-                Brush.verticalGradient(
-                    0.0f to Color.White.copy(alpha = 0.18f),
-                    0.24f to Color.White.copy(alpha = 0.04f),
-                    0.78f to Color.Transparent,
-                    1.0f to Color.White.copy(alpha = 0.07f)
+                Brush.linearGradient(
+                    0.0f to Color.White.copy(alpha = 0.36f),
+                    0.35f to Color(0xFFA8D2FF).copy(alpha = 0.12f),
+                    0.70f to Color.White.copy(alpha = 0.07f),
+                    1.0f to Color.White.copy(alpha = 0.24f),
+                    start = Offset(0f, 0f),
+                    end = Offset(width, height)
                 )
             } else {
-                Brush.verticalGradient(
-                    0.0f to Color.White.copy(alpha = 0.78f),
-                    0.22f to Color.White.copy(alpha = 0.18f),
-                    0.80f to Color.Transparent,
-                    1.0f to Color.White.copy(alpha = 0.34f)
+                Brush.linearGradient(
+                    0.0f to Color.White.copy(alpha = 0.88f),
+                    0.35f to Color(0xFFD8EEFF).copy(alpha = 0.28f),
+                    0.72f to Color.Black.copy(alpha = 0.06f),
+                    1.0f to Color.White.copy(alpha = 0.56f),
+                    start = Offset(0f, 0f),
+                    end = Offset(width, height)
                 )
             }
 
@@ -1282,32 +1301,62 @@ fun GlassCircleButton(
 ) {
     val haptics = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
-    LiquidGlassBox(
-        modifier = modifier
-            .size(size)
-            .tactileScale(interactionSource, pressedScale = 0.90f)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onClick()
-            },
-        state = state,
-        cornerRadius = size / 2,
-        shape = CircleShape,
-        widgetSize = GlassWidgetSize.SMALL,
-        sceneType = GlassSceneType.IMMERSIVE,
-        interactive = true,
-        shadowElevation = 8.dp,
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = Modifier.size(20.dp)
-        )
+    val insideOverlay = LocalInsideGlassOverlay.current
+    if (insideOverlay) {
+        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+        val fill = if (isDark) Color.White.copy(alpha = 0.09f) else Color.White.copy(alpha = 0.55f)
+        val stroke = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)
+        Box(
+            modifier = modifier
+                .size(size)
+                .tactileScale(interactionSource, pressedScale = 0.90f)
+                .clip(CircleShape)
+                .background(fill, CircleShape)
+                .border(0.75.dp, stroke, CircleShape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = androidx.compose.foundation.LocalIndication.current
+                ) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    } else {
+        LiquidGlassBox(
+            modifier = modifier
+                .size(size)
+                .tactileScale(interactionSource, pressedScale = 0.90f)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null
+                ) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+            state = state,
+            cornerRadius = size / 2,
+            shape = CircleShape,
+            widgetSize = GlassWidgetSize.SMALL,
+            sceneType = GlassSceneType.IMMERSIVE,
+            interactive = true,
+            shadowElevation = 8.dp,
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
@@ -1326,6 +1375,7 @@ fun GlassCapsuleButton(
     val shape = RoundedCornerShape(percent = 50)
     val contentAlpha = if (enabled) 1f else 0.45f
     val interactionSource = remember { MutableInteractionSource() }
+    val insideOverlay = LocalInsideGlassOverlay.current
     if (filled) {
         val bg = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.45f)
         val fg = MaterialTheme.colorScheme.onPrimary
@@ -1355,6 +1405,50 @@ fun GlassCapsuleButton(
                 text = text,
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = fg,
+                maxLines = 1
+            )
+        }
+    } else if (insideOverlay) {
+        // 弹窗/浮层内部使用纯 Compose 光学玻璃胶囊，避免 HnVisualEffectLayout 二次嵌套引发矩形白色透明块伪影
+        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+        val bg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.45f)
+        val border = if (isDark) {
+            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.08f)))
+        } else {
+            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.72f), Color.Black.copy(alpha = 0.12f)))
+        }
+        Row(
+            modifier = modifier
+                .height(38.dp)
+                .tactileScale(interactionSource, pressedScale = 0.95f)
+                .clip(shape)
+                .background(bg, shape)
+                .border(0.8.dp, border, shape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    enabled = enabled
+                ) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                }
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
                 maxLines = 1
             )
         }
@@ -1549,16 +1643,30 @@ fun GlassNavigationRail(
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val railWidth = 80.dp
     val itemSlotHeight = 62.dp
+    val railShape = RoundedCornerShape(32.dp)
 
-    LiquidGlassBox(
-        modifier = modifier.width(railWidth),
-        state = state,
-        cornerRadius = 32.dp,
-        widgetSize = GlassWidgetSize.SMALL,
-        sceneType = GlassSceneType.IMMERSIVE,
-        interactive = true,
-        transparencyLevel = 0.96f,
-        shadowElevation = 14.dp
+    // 荣耀原生 LiquidSmallOnHighImmersive 在纯暗底色上会强制叠加 30% #787878 灰雾层，
+    // 导致左侧无滚动内容经过时偏灰不够晶莹；改用超低底色 Haze + 235° 高光学弯月高光框体，通透度对齐荣耀水滴玻璃。
+    Box(
+        modifier = modifier
+            .width(railWidth)
+            .shadow(
+                elevation = 14.dp,
+                shape = railShape,
+                ambientColor = Color.Black.copy(alpha = 0.16f),
+                spotColor = Color.Black.copy(alpha = 0.24f)
+            )
+            .liquidGlass(
+                state = state,
+                tint = if (isDark) {
+                    Color(0xFF0A0C12).copy(alpha = 0.16f)
+                } else {
+                    Color.White.copy(alpha = 0.28f)
+                },
+                shape = railShape,
+                blurRadius = 10.dp,
+                borderWidth = 0.9.dp
+            )
     ) {
         Column(
             modifier = Modifier

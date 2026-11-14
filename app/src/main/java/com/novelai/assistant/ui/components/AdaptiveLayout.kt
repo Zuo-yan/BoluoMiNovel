@@ -189,8 +189,8 @@ fun AdaptiveCenteredContainer(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
                 .widthIn(max = maxWidth)
+                .fillMaxWidth()
                 .padding(horizontal = horizontalPadding),
             content = content
         )
@@ -325,29 +325,31 @@ fun AdaptiveGlassDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            LiquidGlassBox(
-                modifier = modifier
+        CompositionLocalProvider(LocalInsideGlassOverlay provides true) {
+            Box(
+                modifier = Modifier
                     .fillMaxWidth()
-                    .widthIn(max = maxWidth),
-                cornerRadius = cornerRadius,
-                widgetSize = GlassWidgetSize.BIG,
-                sceneType = GlassSceneType.GENERAL,
-                interactive = false,
-                skipRenderLayer = true,
-                shadowElevation = 20.dp
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(contentPadding),
-                    content = content
-                )
+                LiquidGlassBox(
+                    modifier = modifier
+                        .widthIn(max = maxWidth)
+                        .fillMaxWidth(),
+                    cornerRadius = cornerRadius,
+                    widgetSize = GlassWidgetSize.BIG,
+                    sceneType = GlassSceneType.GENERAL,
+                    interactive = false,
+                    skipRenderLayer = true,
+                    shadowElevation = 20.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(contentPadding),
+                        content = content
+                    )
+                }
             }
         }
     }
@@ -388,34 +390,37 @@ fun AdaptiveGlassSheet(
             containerColor = Color.Transparent,
             dragHandle = null
         ) {
-            LiquidGlassBox(
-                modifier = modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .padding(bottom = 12.dp)
-                    .navigationBarsPadding(),
-                cornerRadius = cornerRadius,
-                widgetSize = GlassWidgetSize.BIG,
-                sceneType = GlassSceneType.GENERAL,
-                interactive = false,
-                skipRenderLayer = true,
-                shadowElevation = 18.dp
-            ) {
-                Column(
-                    modifier = Modifier
+            CompositionLocalProvider(LocalInsideGlassOverlay provides true) {
+                LiquidGlassBox(
+                    modifier = modifier
+                        .widthIn(max = maxWidth)
                         .fillMaxWidth()
-                        .padding(contentPadding)
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 12.dp)
+                        .navigationBarsPadding(),
+                    cornerRadius = cornerRadius,
+                    widgetSize = GlassWidgetSize.BIG,
+                    sceneType = GlassSceneType.GENERAL,
+                    interactive = false,
+                    skipRenderLayer = true,
+                    shadowElevation = 18.dp
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(bottom = 12.dp)
-                            .width(38.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
-                    )
-                    content()
+                            .fillMaxWidth()
+                            .padding(contentPadding)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .padding(bottom = 12.dp)
+                                .width(38.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+                        )
+                        content()
+                    }
                 }
             }
         }
