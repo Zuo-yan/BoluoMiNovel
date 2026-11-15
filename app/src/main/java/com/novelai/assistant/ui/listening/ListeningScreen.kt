@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,27 +30,35 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RecordVoiceOver
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -77,6 +86,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.db.BookEntity
+import com.novelai.assistant.data.network.AiTtsVoice
+import com.novelai.assistant.data.prefs.TtsEngineMode
 import com.novelai.assistant.data.tts.TtsTimerMode
 import com.novelai.assistant.data.tts.TtsVoiceOption
 import com.novelai.assistant.ui.bookshelf.BookCover
@@ -85,11 +96,13 @@ import com.novelai.assistant.ui.components.AdaptiveGlassSheet
 import com.novelai.assistant.ui.components.AdaptiveTwoPane
 import com.novelai.assistant.ui.components.GlassCapsuleButton
 import com.novelai.assistant.ui.components.GlassCircleButton
+import com.novelai.assistant.ui.components.GlassFilterPill
 import com.novelai.assistant.ui.components.GlassSceneType
 import com.novelai.assistant.ui.components.GlassWidgetSize
 import com.novelai.assistant.ui.components.LiquidGlassBox
 import com.novelai.assistant.ui.components.LocalAdaptiveMetrics
 import com.novelai.assistant.ui.components.LocalGlassHazeState
+import com.novelai.assistant.ui.components.tactileScale
 import com.novelai.assistant.ui.theme.NovelColors
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
@@ -100,6 +113,7 @@ import kotlin.math.abs
 fun ListeningScreen(
     onBack: () -> Unit,
     onOpenReader: (bookId: String, chapterIndex: Int) -> Unit,
+    onOpenTtsRouting: () -> Unit = {},
     viewModel: ListeningViewModel = hiltViewModel()
 ) {
     val speaking by viewModel.speaking.collectAsStateWithLifecycle()
@@ -113,6 +127,13 @@ fun ListeningScreen(
 
     val voices by viewModel.voices.collectAsStateWithLifecycle()
     val voiceName by viewModel.voiceName.collectAsStateWithLifecycle()
+    val engineMode by viewModel.engineMode.collectAsStateWithLifecycle()
+    val aiVoice by viewModel.aiVoice.collectAsStateWithLifecycle()
+    val aiVoices by viewModel.aiVoices.collectAsStateWithLifecycle()
+    val aiBuffering by viewModel.aiBuffering.collectAsStateWithLifecycle()
+    val aiFallbackEnabled by viewModel.aiFallbackEnabled.collectAsStateWithLifecycle()
+    val ttsLastError by viewModel.ttsLastError.collectAsStateWithLifecycle()
+    val activeAiTtsLabel by viewModel.activeAiTtsLabel.collectAsStateWithLifecycle()
     val timerMode by viewModel.timerMode.collectAsStateWithLifecycle()
 
     val adaptive = LocalAdaptiveMetrics.current
@@ -144,11 +165,27 @@ fun ListeningScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = if (isPlaying) "正在播放" else if (paused) "已暂停" else "未在播放",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isPlaying) accentInk else secondaryInk
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = when {
+                                    aiBuffering && isPlaying -> "AI 正在合成语音…"
+                                    isPlaying && engineMode == TtsEngineMode.AI_MODEL && activeAiTtsLabel != null ->
+                                        "AI 语音模型播放中"
+                                    isPlaying -> "正在播放"
+                                    paused -> "已暂停"
+                                    else -> "未在播放"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isPlaying) accentInk else secondaryInk
+                            )
+                            if (aiBuffering) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(10.dp),
+                                    strokeWidth = 1.5.dp,
+                                    color = accentInk
+                                )
+                            }
+                        }
                     }
                 },
                 navigationIcon = {
@@ -280,12 +317,22 @@ fun ListeningScreen(
                                     .heightIn(min = 210.dp, max = 340.dp)
                             )
 
+                            ttsLastError?.let { errMsg ->
+                                TtsNoticeBanner(
+                                    message = errMsg,
+                                    onDismiss = { viewModel.clearTtsError() }
+                                )
+                            }
+
                             ListeningOptionGrid(
                                 rate = rate,
                                 timerMode = timerMode,
                                 remainingSecondsFlow = viewModel.timerRemainingSeconds,
+                                engineMode = engineMode,
                                 voices = voices,
                                 voiceName = voiceName,
+                                aiVoice = aiVoice,
+                                activeAiTtsLabel = activeAiTtsLabel,
                                 isDark = isDark,
                                 primaryInk = primaryInk,
                                 secondaryInk = secondaryInk,
@@ -373,13 +420,24 @@ fun ListeningScreen(
                         }
                     )
 
+                    ttsLastError?.let { errMsg ->
+                        Spacer(Modifier.height(14.dp))
+                        TtsNoticeBanner(
+                            message = errMsg,
+                            onDismiss = { viewModel.clearTtsError() }
+                        )
+                    }
+
                     Spacer(Modifier.height(24.dp))
                     ListeningOptionGrid(
                         rate = rate,
                         timerMode = timerMode,
                         remainingSecondsFlow = viewModel.timerRemainingSeconds,
+                        engineMode = engineMode,
                         voices = voices,
                         voiceName = voiceName,
+                        aiVoice = aiVoice,
+                        activeAiTtsLabel = activeAiTtsLabel,
                         isDark = isDark,
                         primaryInk = primaryInk,
                         secondaryInk = secondaryInk,
@@ -436,17 +494,38 @@ fun ListeningScreen(
             maxWidth = adaptive.maxDialogSheetWidth
         ) {
             VoiceSelectorSheet(
+                engineMode = engineMode,
                 voices = voices,
                 selectedVoiceName = voiceName,
+                aiVoices = aiVoices,
+                selectedAiVoice = aiVoice,
+                activeAiTtsLabel = activeAiTtsLabel,
+                aiFallbackEnabled = aiFallbackEnabled,
+                aiBuffering = aiBuffering,
+                ttsLastError = ttsLastError,
                 isDark = isDark,
                 primaryInk = primaryInk,
                 secondaryInk = secondaryInk,
                 accentInk = accentInk,
+                onClearError = { viewModel.clearTtsError() },
+                onSelectEngineMode = { mode -> viewModel.setEngineMode(mode) },
                 onSelectVoice = { name ->
+                    viewModel.setEngineMode(TtsEngineMode.SYSTEM)
                     viewModel.setVoice(name)
                     showVoiceSheet = false
                 },
-                onAudition = { name -> viewModel.auditionVoice(name) }
+                onAudition = { name -> viewModel.auditionVoice(name) },
+                onSelectAiVoice = { voiceId ->
+                    viewModel.setAiVoice(voiceId)
+                    showVoiceSheet = false
+                },
+                onAuditionAiVoice = { voiceId -> viewModel.auditionAiVoice(voiceId) },
+                onRefreshAiVoices = { viewModel.refreshAiVoices() },
+                onToggleAiFallback = { enabled -> viewModel.setAiFallbackEnabled(enabled) },
+                onOpenTtsRouting = {
+                    showVoiceSheet = false
+                    onOpenTtsRouting()
+                }
             )
         }
     }
@@ -591,12 +670,55 @@ private fun GlassTransportControls(
 }
 
 @Composable
+private fun TtsNoticeBanner(
+    message: String,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.Close,
+                    contentDescription = "关闭提示",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ListeningOptionGrid(
     rate: Float,
     timerMode: TtsTimerMode,
     remainingSecondsFlow: StateFlow<Int?>,
+    engineMode: TtsEngineMode,
     voices: List<TtsVoiceOption>,
     voiceName: String?,
+    aiVoice: String,
+    activeAiTtsLabel: String?,
     isDark: Boolean,
     primaryInk: Color,
     secondaryInk: Color,
@@ -632,16 +754,22 @@ private fun ListeningOptionGrid(
             onClick = onOpenTimer
         )
 
+        val isAiActive = engineMode == TtsEngineMode.AI_MODEL && activeAiTtsLabel != null
         val selectedVoice = voices.firstOrNull { it.name == voiceName }
-        val voiceLabel = selectedVoice?.label ?: "系统默认"
+        val voiceLabel = if (isAiActive) {
+            "AI · ${aiVoice.ifBlank { "默认" }}"
+        } else {
+            selectedVoice?.label ?: "系统默认"
+        }
         ListenOptionPill(
-            icon = Icons.Rounded.RecordVoiceOver,
-            title = "音色",
+            icon = if (isAiActive) Icons.Rounded.GraphicEq else Icons.Rounded.RecordVoiceOver,
+            title = if (isAiActive) "AI 音色" else "音色",
             value = voiceLabel,
             isDark = isDark,
             primaryInk = primaryInk,
             secondaryInk = secondaryInk,
             accentInk = accentInk,
+            highlight = isAiActive,
             modifier = Modifier.weight(1f),
             onClick = onOpenVoice
         )
@@ -765,6 +893,7 @@ private fun ListenOptionPill(
     onClick: () -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
     val highlightTint = if (highlight) {
         accentInk.copy(alpha = if (isDark) 0.22f else 0.14f)
     } else {
@@ -772,7 +901,12 @@ private fun ListenOptionPill(
     }
     LiquidGlassBox(
         modifier = modifier
-            .clickable {
+            .tactileScale(interactionSource, pressedScale = 0.96f)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onClick()
             },
@@ -967,80 +1101,309 @@ private fun TimerSelectorSheet(
 
 @Composable
 private fun VoiceSelectorSheet(
+    engineMode: TtsEngineMode,
     voices: List<TtsVoiceOption>,
     selectedVoiceName: String?,
+    aiVoices: List<AiTtsVoice>,
+    selectedAiVoice: String,
+    activeAiTtsLabel: String?,
+    aiFallbackEnabled: Boolean,
+    aiBuffering: Boolean,
+    ttsLastError: String?,
     isDark: Boolean,
     primaryInk: Color,
     secondaryInk: Color,
     accentInk: Color,
+    onClearError: () -> Unit,
+    onSelectEngineMode: (TtsEngineMode) -> Unit,
     onSelectVoice: (String?) -> Unit,
-    onAudition: (String?) -> Unit
+    onAudition: (String?) -> Unit,
+    onSelectAiVoice: (String) -> Unit,
+    onAuditionAiVoice: (String) -> Unit,
+    onRefreshAiVoices: () -> Unit,
+    onToggleAiFallback: (Boolean) -> Unit,
+    onOpenTtsRouting: () -> Unit
 ) {
+    var activeTab by remember(engineMode) { mutableStateOf(engineMode) }
+    var customVoiceInput by remember(selectedAiVoice) { mutableStateOf(selectedAiVoice) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            "选择朗读音色",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = primaryInk
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "由设备系统 TTS 引擎提供，切换后从当前段落开头重读",
-            style = MaterialTheme.typography.bodySmall,
-            color = secondaryInk
-        )
-        Spacer(Modifier.height(14.dp))
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 360.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            item(key = "__system_default__") {
-                VoiceOptionRow(
-                    title = "系统默认音色",
-                    subtitle = "使用系统 TTS 默认语音",
-                    isSelected = selectedVoiceName == null,
-                    isDark = isDark,
-                    primaryInk = primaryInk,
-                    secondaryInk = secondaryInk,
-                    accentInk = accentInk,
-                    onSelect = { onSelectVoice(null) },
-                    onAudition = { onAudition(null) }
-                )
+            Text(
+                "语音引擎与音色",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = primaryInk
+            )
+            if (aiBuffering) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 1.8.dp,
+                        color = accentInk
+                    )
+                    Text("合成试听中…", style = MaterialTheme.typography.labelSmall, color = accentInk)
+                }
             }
+        }
+        Spacer(Modifier.height(10.dp))
 
-            if (voices.isEmpty()) {
-                item(key = "__empty_voices__") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
+        ttsLastError?.let { errMsg ->
+            TtsNoticeBanner(
+                message = errMsg,
+                onDismiss = onClearError
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            GlassFilterPill(
+                label = "系统语音",
+                selected = activeTab == TtsEngineMode.SYSTEM,
+                onClick = {
+                    activeTab = TtsEngineMode.SYSTEM
+                    onSelectEngineMode(TtsEngineMode.SYSTEM)
+                }
+            )
+            GlassFilterPill(
+                label = "AI 语音模型",
+                selected = activeTab == TtsEngineMode.AI_MODEL,
+                onClick = {
+                    activeTab = TtsEngineMode.AI_MODEL
+                    if (activeAiTtsLabel != null) {
+                        onSelectEngineMode(TtsEngineMode.AI_MODEL)
+                    }
+                }
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+
+        ttsLastError?.let { errMsg ->
+            TtsNoticeBanner(
+                message = errMsg,
+                onDismiss = onClearError
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+
+        if (activeTab == TtsEngineMode.SYSTEM) {
+            Text(
+                text = "由设备系统 TTS 引擎提供，离线可用、零额度消耗",
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryInk
+            )
+            Spacer(Modifier.height(10.dp))
+
+        ttsLastError?.let { errMsg ->
+            TtsNoticeBanner(
+                message = errMsg,
+                onDismiss = onClearError
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+            ) {
+                item(key = "__system_default__") {
+                    VoiceOptionRow(
+                        title = "系统默认音色",
+                        subtitle = "使用系统 TTS 默认语音",
+                        isSelected = engineMode == TtsEngineMode.SYSTEM && selectedVoiceName == null,
+                        isDark = isDark,
+                        primaryInk = primaryInk,
+                        secondaryInk = secondaryInk,
+                        accentInk = accentInk,
+                        onSelect = { onSelectVoice(null) },
+                        onAudition = { onAudition(null) }
+                    )
+                }
+
+                if (voices.isEmpty()) {
+                    item(key = "__empty_voices__") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "当前设备引擎未导出更多音色列表，默认支持基础语音",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = secondaryInk,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                itemsIndexed(voices, key = { index, voice -> "${index}_${voice.name}" }) { _, voice ->
+                    VoiceOptionRow(
+                        title = voice.label,
+                        subtitle = voice.name,
+                        isSelected = engineMode == TtsEngineMode.SYSTEM && voice.name == selectedVoiceName,
+                        isNetworkRequired = voice.isNetworkRequired,
+                        isDark = isDark,
+                        primaryInk = primaryInk,
+                        secondaryInk = secondaryInk,
+                        accentInk = accentInk,
+                        onSelect = { onSelectVoice(voice.name) },
+                        onAudition = { onAudition(voice.name) }
+                    )
+                }
+            }
+        } else {
+            if (activeAiTtsLabel == null) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            "当前设备引擎未导出更多音色列表，默认支持基础语音",
+                            text = "尚未配置 AI 语音合成模型",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = primaryInk
+                        )
+                        Text(
+                            text = "请先在「设置 -> AI 模型任务分流 -> AI 语音合成」中指定支持 Gemini TTS 或 OpenAI /v1/audio/speech 的服务商与模型。",
                             style = MaterialTheme.typography.bodySmall,
-                            color = secondaryInk,
-                            textAlign = TextAlign.Center
+                            color = secondaryInk
+                        )
+                        GlassCapsuleButton(
+                            text = "前往配置语音模型",
+                            icon = Icons.Rounded.Tune,
+                            filled = true,
+                            onClick = onOpenTtsRouting,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
-            }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = accentInk.copy(alpha = if (isDark) 0.14f else 0.09f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "当前模型：$activeAiTtsLabel",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = primaryInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "按需向前预取 1~2 句 · 支持倍速与本地磁盘缓存",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryInk
+                            )
+                        }
+                        TextButton(onClick = onOpenTtsRouting) {
+                            Text("更换模型")
+                        }
+                    }
+                }
 
-            items(voices, key = { it.name }) { voice ->
-                VoiceOptionRow(
-                    title = voice.label,
-                    subtitle = voice.name,
-                    isSelected = voice.name == selectedVoiceName,
-                    isNetworkRequired = voice.isNetworkRequired,
-                    isDark = isDark,
-                    primaryInk = primaryInk,
-                    secondaryInk = secondaryInk,
-                    accentInk = accentInk,
-                    onSelect = { onSelectVoice(voice.name) },
-                    onAudition = { onAudition(voice.name) }
-                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "异常时自动回退系统语音",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = primaryInk
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(
+                            onClick = onRefreshAiVoices,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Refresh,
+                                contentDescription = "刷新扩展音色",
+                                tint = accentInk,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Switch(
+                            checked = aiFallbackEnabled,
+                            onCheckedChange = onToggleAiFallback
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customVoiceInput,
+                        onValueChange = { customVoiceInput = it },
+                        label = { Text("自定义音色 ID（可选）") },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(
+                        onClick = { onSelectAiVoice(customVoiceInput) },
+                        enabled = customVoiceInput.isNotBlank(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("应用")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 260.dp)
+                ) {
+                    itemsIndexed(aiVoices, key = { index, v -> "${index}_${v.id}" }) { _, voice ->
+                        VoiceOptionRow(
+                            title = voice.displayName,
+                            subtitle = voice.description.ifBlank { voice.id },
+                            isSelected = engineMode == TtsEngineMode.AI_MODEL && voice.id == selectedAiVoice,
+                            isNetworkRequired = true,
+                            isDark = isDark,
+                            primaryInk = primaryInk,
+                            secondaryInk = secondaryInk,
+                            accentInk = accentInk,
+                            onSelect = {
+                                onSelectAiVoice(voice.id)
+                            },
+                            onAudition = { onAuditionAiVoice(voice.id) }
+                        )
+                    }
+                }
             }
         }
         Spacer(Modifier.height(6.dp))

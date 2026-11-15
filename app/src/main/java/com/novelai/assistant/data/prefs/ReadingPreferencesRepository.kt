@@ -18,6 +18,12 @@ import javax.inject.Singleton
 
 enum class PageMode { SCROLL, PAGED }
 
+/** 听书语音合成引擎模式 */
+enum class TtsEngineMode(val label: String) {
+    SYSTEM("系统语音"),
+    AI_MODEL("AI 语音模型")
+}
+
 enum class ReaderBgTheme(val label: String) {
     WHITE("浅色"), DARK("深色")
 }
@@ -90,6 +96,9 @@ class ReadingPreferencesRepository @Inject constructor(
     suspend fun currentTtsSpeed(): Float = dataStore.data.map { it[ttsSpeed] ?: 1.0f }.first()
 
     private val ttsVoiceName = stringPreferencesKey("tts_voice_name")
+    private val ttsEngineMode = stringPreferencesKey("tts_engine_mode")
+    private val aiTtsVoiceId = stringPreferencesKey("ai_tts_voice_id")
+    private val aiTtsFallbackToSystem = booleanPreferencesKey("ai_tts_fallback_to_system")
     private val listenPillX = floatPreferencesKey("listen_pill_x_frac")
     private val listenPillY = floatPreferencesKey("listen_pill_y_frac")
 
@@ -99,6 +108,25 @@ class ReadingPreferencesRepository @Inject constructor(
     }
 
     suspend fun currentTtsVoice(): String? = dataStore.data.map { it[ttsVoiceName] }.first()
+
+    /** 听书引擎模式（系统语音 / AI 语音模型） */
+    val ttsEngineModeFlow: Flow<TtsEngineMode> = dataStore.data.map { p ->
+        p[ttsEngineMode]?.let { runCatching { TtsEngineMode.valueOf(it) }.getOrNull() }
+            ?: TtsEngineMode.SYSTEM
+    }
+
+    suspend fun setTtsEngineMode(mode: TtsEngineMode) = dataStore.edit { it[ttsEngineMode] = mode.name }
+    suspend fun currentTtsEngineMode(): TtsEngineMode = ttsEngineModeFlow.first()
+
+    /** AI 语音模型音色 ID（如 Kore / alloy） */
+    val aiTtsVoiceFlow: Flow<String> = dataStore.data.map { it[aiTtsVoiceId].orEmpty() }
+    suspend fun setAiTtsVoice(voiceId: String) = dataStore.edit { it[aiTtsVoiceId] = voiceId.trim() }
+    suspend fun currentAiTtsVoice(): String = aiTtsVoiceFlow.first()
+
+    /** 云端语音合成失败时是否自动回退系统音色 */
+    val aiTtsFallbackToSystemFlow: Flow<Boolean> = dataStore.data.map { it[aiTtsFallbackToSystem] ?: true }
+    suspend fun setAiTtsFallbackToSystem(enabled: Boolean) = dataStore.edit { it[aiTtsFallbackToSystem] = enabled }
+    suspend fun currentAiTtsFallbackToSystem(): Boolean = aiTtsFallbackToSystemFlow.first()
 
     /** 听书悬浮胶囊位置（屏幕比例坐标 0..1，跨分辨率恢复） */
     val listenPillPosition: Flow<Pair<Float, Float>> = dataStore.data.map { p ->

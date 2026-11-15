@@ -7,11 +7,13 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,18 +26,30 @@ data class SfComic(
     val latestChapter: String,
     val category: String,
     val score: String,
-    val status: String
+    val status: String,
+    val folderName: String = ""
 )
 
-data class SfComicChapter(val id: String, val title: String)
+data class SfComicChapter(
+    val id: String,
+    val title: String,
+    val isVip: Boolean = false,
+    val pathName: String = ""
+)
 data class SfComicInfo(val comic: SfComic, val chapters: List<SfComicChapter>)
 data class SfComicCatalogPage(val comics: List<SfComic>, val lastPage: Int?)
 
 @Singleton
 class KtorSfComicClient @Inject constructor(
+    private val sfApi: SfApi,
     @SfNonRedirectClient private val client: HttpClient
 ) {
-    constructor() : this(SfHttpClientFactory.nonRedirectingClient)
+    constructor() : this(
+        SfApi(KtorSfTransport(), SfProtocol.COMPATIBLE_DEVICE),
+        SfHttpClientFactory.nonRedirectingClient
+    )
+
+    private val folderToIdCache = ConcurrentHashMap<String, String>()
 
     suspend fun get(url: String, referer: String? = null): String = getFollowingOfficialRedirects(url, referer, 0)
 
@@ -68,23 +82,30 @@ class KtorSfComicClient @Inject constructor(
         return response.bodyAsText()
     }
 
+    suspend fun categories(): List<SfCategory> = sfApi.comicTypes()
+
     suspend fun catalog(categoryId: Int? = null, page: Int = 1): SfComicCatalogPage {
         require(page > 0)
-        val query = buildString {
-            append("?PageIndex=$page")
-            if (categoryId != null) append("&tid=$categoryId")
-        }
-        val html = get("https://manhua.sfacg.com/catalog/$query")
-        return SfComicCatalogPage(SfComicLibrary.parseCatalog(html), SfComicLibrary.parseLastPage(html))
+        val comics = sfApi.comicCatalog(categoryId, page, size = 20)
+        cacheFolderIds(comics)
+        val lastPage = if (comics.size < 20) page else null
+        return SfComicCatalogPage(comics, lastPage)
     }
 
     suspend fun search(query: String): List<SfComic> {
-        val q = java.net.URLEncoder.encode(query.trim(), "UTF-8")
-        return SfComicLibrary.parseCatalog(get("https://s.sfacg.com/?Key=$q&S=0&SS=0"))
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return emptyList()
+        val comics = sfApi.comicSearch(trimmed, page = 1, size = 20)
+        cacheFolderIds(comics)
+        return comics
     }
 
     suspend fun detail(slug: String): SfComicInfo {
         require(slug.matches(Regex("[A-Za-z0-9]{1,20}")))
+        val comicId = resolveComicIdOrNull(slug)
+        if (comicId != null) {
+            return sfApi.comicDetail(comicId).also { cacheFolderIds(listOf(it.comic)) }
+        }
         return SfComicLibrary.parseDetail(slug, get("https://manhua.sfacg.com/mh/$slug/"))
     }
 
@@ -93,6 +114,23 @@ class KtorSfComicClient @Inject constructor(
         val oldChapter = chapterId.matches(Regex("\\d{1,12}"))
         val mobileChapter = chapterId.matches(Regex("[A-Za-z0-9]{1,12}/\\d{3,12}_\\d{1,12}"))
         require(oldChapter || mobileChapter)
+
+        if (oldChapter) {
+            val comicId = resolveComicIdOrNull(slug)
+            if (comicId != null) {
+                val backend = SfComicLibrary.parsePicResponse(
+                    get(
+                        "https://manhua.sfacg.com/ajax/Common.ashx?op=getPics&cid=$comicId&chapId=$chapterId",
+                        referer = "https://manhua.sfacg.com/"
+                    )
+                )
+                if (backend.isEmpty()) {
+                    throw SfException(SfFailureKind.UNPURCHASED, "本章暂无可用漫画图片（可能为 VIP 付费章节或需登录账号）")
+                }
+                return backend
+            }
+        }
+
         val baseUrl = if (oldChapter) "https://manhua.sfacg.com/mh/$slug/$chapterId/"
         else "https://mm.sfacg.com/b/$slug/$chapterId/"
         val html = get(baseUrl)
@@ -106,12 +144,43 @@ class KtorSfComicClient @Inject constructor(
         if (backend.isEmpty()) throw SfException(SfFailureKind.UNPURCHASED, "本章没有取得漫画图片，可能需要登录或订阅权限")
         return backend
     }
+
+    private fun cacheFolderIds(comics: List<SfComic>) {
+        comics.forEach { comic ->
+            if (comic.slug.matches(Regex("\\d{1,12}")) && comic.folderName.isNotBlank()) {
+                folderToIdCache[comic.folderName.uppercase()] = comic.slug
+            }
+        }
+    }
+
+    private suspend fun resolveComicIdOrNull(slugOrId: String): String? {
+        if (slugOrId.matches(Regex("\\d{1,12}"))) return slugOrId
+        val key = slugOrId.uppercase()
+        folderToIdCache[key]?.let { return it }
+        // Check first catalog pages or search by folder name if invoked with legacy alphabetic slug.
+        val firstPage = runCatching { sfApi.comicCatalog(null, 1, 50) }.getOrDefault(emptyList())
+        cacheFolderIds(firstPage)
+        folderToIdCache[key]?.let { return it }
+        val searched = runCatching { sfApi.comicSearch(slugOrId, 1, 20) }.getOrDefault(emptyList())
+        cacheFolderIds(searched)
+        return folderToIdCache[key]
+    }
 }
 
 object SfComicLibrary {
     private val allowedComicHosts = setOf(
-        "manhua.sfacg.com", "mm.sfacg.com", "s.sfacg.com", "coldpic.sfacg.com", "rs.sfacg.com"
+        "manhua.sfacg.com", "mm.sfacg.com", "s.sfacg.com",
+        "coldpic.sfacg.com", "pic.sfacg.com", "rs.sfacg.com", "rss.sfacg.com"
     )
+    private val imageCdnHosts = setOf(
+        "coldpic.sfacg.com", "pic.sfacg.com", "rs.sfacg.com", "rss.sfacg.com"
+    )
+    private val defaultTypeNames = mapOf(
+        1 to "热血", 2 to "校园", 3 to "悬疑", 5 to "冒险",
+        7 to "恋爱", 8 to "搞笑", 9 to "科幻", 10 to "奇幻", 11 to "恐怖",
+        12 to "都市", 13 to "爱情", 14 to "古风", 15 to "日常", 17 to "玄幻", 18 to "后宫"
+    )
+    private val typeNames = ConcurrentHashMap(defaultTypeNames)
 
     fun isAllowedUrl(value: String): Boolean = runCatching {
         val uri = java.net.URI(value)
@@ -149,8 +218,12 @@ object SfComicLibrary {
     fun parseDetail(slug: String, html: String): SfComicInfo {
         val baseUrl = "https://mm.sfacg.com/b/$slug/"
         val doc = Jsoup.parse(html, baseUrl)
+        val pageTitle = doc.title().trim()
+        if (pageTitle == "出错啦" || pageTitle.startsWith("糟糕") || pageTitle.contains("页面找不到")) {
+            throw SfException(SfFailureKind.INVALID, "官方网页版漫画页面暂不可用，请从漫画列表重新打开")
+        }
         val title = doc.selectFirst("span.book_newtitle")?.text()?.trim()
-            ?: doc.title().substringBefore('_').substringBefore(',').trim()
+            ?: pageTitle.substringBefore('_').substringBefore(',').trim()
         if (title.isBlank()) throw SfException(SfFailureKind.INVALID, "漫画页面缺少作品标题")
 
         val oldChapterPattern = Regex("/mh/$slug/(\\d{1,12})/?")
@@ -199,6 +272,82 @@ object SfComicLibrary {
         if ((root["status"]?.jsonPrimitive?.content ?: "200") != "200") throw SfException(SfFailureKind.UNPURCHASED, "漫画图片不可用，请确认章节权限")
         return (root["data"] as? JsonArray).orEmpty().mapNotNull {
             (it as? JsonPrimitive)?.content
-        }.filter { it.startsWith("https://coldpic.sfacg.com/") }
+        }.filter { url ->
+            runCatching {
+                val uri = java.net.URI(url)
+                isAllowedUrl(url) && uri.host in imageCdnHosts
+            }.getOrDefault(false)
+        }
+    }
+
+    fun parseApiComicTypes(data: JsonElement): List<SfCategory> =
+        (data as? JsonArray).orEmpty().mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            val id = obj.text("typeId").toIntOrNull() ?: return@mapNotNull null
+            val name = obj.text("typeName").trim().ifBlank { return@mapNotNull null }
+            typeNames[id] = name
+            SfCategory(id, name)
+        }
+
+    fun parseApiComic(obj: JsonObject): SfComic? {
+        val comicId = obj.text("comicId").trim()
+        if (!comicId.matches(Regex("\\d+"))) return null
+        val title = obj.text("comicName").trim().ifBlank { return null }
+        val exp = obj.obj("expand")
+        val cover = obj.text("comicCover").trim().takeIf { it.startsWith("http") }
+            ?.replace("http://", "https://")
+        val author = exp.text("authorName").ifBlank { obj.text("authorName") }.trim()
+        val typeId = obj.text("typeId").toIntOrNull()
+        val category = exp.text("typeName").trim()
+            .ifBlank { typeId?.let { typeNames[it] }.orEmpty() }
+        val intro = exp.text("intro").trim()
+        val latest = obj.text("latestChapterTitle").trim()
+        val score = obj.text("point").trim().takeIf { it.isNotBlank() && it != "0" && it != "0.0" }.orEmpty()
+        val status = if (obj.flag("isFinished")) "已完结" else "连载中"
+        val folder = obj.text("folderName").trim()
+        return SfComic(
+            slug = comicId,
+            title = title,
+            author = author,
+            cover = cover,
+            intro = intro,
+            latestChapter = latest,
+            category = category,
+            score = score,
+            status = status,
+            folderName = folder
+        )
+    }
+
+    fun parseApiComicList(data: JsonElement): List<SfComic> =
+        (data as? JsonArray).orEmpty().mapNotNull { element ->
+            (element as? JsonObject)?.let(::parseApiComic)
+        }.distinctBy { it.slug }
+
+    fun parseApiComicDetail(meta: JsonObject, chapsData: JsonElement): SfComicInfo {
+        val comic = parseApiComic(meta)
+            ?: throw SfException(SfFailureKind.INVALID, "漫画详情返回格式已变化")
+        // Official /comics/{id}/chaps returns newest chapter first; reverse for chronological reading order.
+        val chapters = (chapsData as? JsonArray).orEmpty().mapNotNull { element ->
+            val c = element as? JsonObject ?: return@mapNotNull null
+            val chapId = c.text("chapterId").trim()
+            if (!chapId.matches(Regex("\\d+"))) return@mapNotNull null
+            val title = c.text("chapterTitle").trim().ifBlank { "第 $chapId 话" }
+            val exp = c.obj("expand")
+            val isVip = c.flag("isVip") ||
+                (exp.text("needFireMoney").toDoubleOrNull() ?: 0.0) > 0.0 ||
+                (exp.text("originNeedFireMoney").toDoubleOrNull() ?: 0.0) > 0.0
+            SfComicChapter(
+                id = chapId,
+                title = title,
+                isVip = isVip,
+                pathName = c.text("pathName").trim()
+            )
+        }.distinctBy { it.id }.reversed()
+        if (chapters.isEmpty()) throw SfException(SfFailureKind.INVALID, "漫画暂无章节目录")
+        return SfComicInfo(
+            comic = comic.copy(latestChapter = comic.latestChapter.ifBlank { chapters.last().title }),
+            chapters = chapters
+        )
     }
 }

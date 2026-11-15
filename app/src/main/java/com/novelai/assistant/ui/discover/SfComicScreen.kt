@@ -1,5 +1,6 @@
 package com.novelai.assistant.ui.discover
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +23,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -65,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.sf.SfComic
@@ -86,12 +90,6 @@ import com.novelai.assistant.ui.components.rememberGlassState
 import com.novelai.assistant.ui.theme.NovelColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
-
-private val sfComicCategories = listOf(
-    null to "全部", 1 to "热血", 2 to "校园", 3 to "推理", 4 to "机战", 5 to "冒险",
-    6 to "运动", 7 to "纯爱", 8 to "搞笑", 9 to "科幻", 10 to "魔幻",
-    12 to "社会", 13 to "爱情", 14 to "武侠", 15 to "温情", 16 to "惊悚"
-)
 
 @Composable
 fun SfComicBrowseScreen(
@@ -198,7 +196,7 @@ fun SfComicBrowseScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        sfComicCategories.forEach { (id, name) ->
+                        state.categories.forEach { (id, name) ->
                             GlassFilterPill(
                                 label = name,
                                 selected = state.categoryId == id && state.search.isBlank(),
@@ -298,6 +296,7 @@ fun SfComicReaderScreen(
     val state by viewModel.detailState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val comicHaze = rememberGlassState()
+    var showChapterPicker by rememberSaveable { mutableStateOf(false) }
     val canPrevious = !state.loading && state.currentChapterIndex > 0
     val chapterCount = state.info?.chapters?.size ?: 0
     val canNext = !state.loading && state.currentChapterIndex < chapterCount - 1
@@ -317,18 +316,23 @@ fun SfComicReaderScreen(
     }
     LaunchedEffect(state.loadedChapterIndex) {
         if (state.loadedChapterIndex != null && state.pages.isNotEmpty()) {
-            listState.animateScrollToItem(0)
+            listState.scrollToItem(0)
         }
     }
     LaunchedEffect(listState, state.loadedChapterIndex, state.pages.size, state.loading, chapterCount) {
         snapshotFlow {
             val layout = listState.layoutInfo
             val endVisible = layout.visibleItemsInfo.any { it.key == "chapter-end" }
-            Triple(endVisible, listState.isScrollInProgress, state.currentChapterIndex)
-        }.distinctUntilChanged().collect { (endVisible, scrolling, _) ->
-            if (endVisible) {
+            val atBottom = endVisible && !listState.canScrollForward &&
+                state.loadedChapterIndex == state.currentChapterIndex &&
+                state.pages.isNotEmpty() && !state.loading
+            Triple(atBottom, listState.isScrollInProgress, state.currentChapterIndex)
+        }.distinctUntilChanged().collect { (atBottom, scrolling, _) ->
+            if (atBottom) {
                 viewModel.markEndVisible()
                 if (!scrolling) viewModel.armNextChapter()
+            } else {
+                viewModel.clearEndReached()
             }
         }
     }
@@ -529,7 +533,21 @@ fun SfComicReaderScreen(
                                         .padding(horizontal = 8.dp),
                                     shape = RoundedCornerShape(4.dp),
                                     contentScale = ContentScale.FillWidth,
-                                    maxDimension = 2048
+                                    maxDimension = 2048,
+                                    placeholder = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(420.dp)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(26.dp),
+                                                strokeWidth = 2.5.dp
+                                            )
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -678,11 +696,15 @@ fun SfComicReaderScreen(
                             state = comicHaze
                         )
                         Column(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { showChapterPicker = true }
+                                .padding(vertical = 4.dp, horizontal = 6.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "第 $currentNumber / $chapterCount 话",
+                                text = "第 $currentNumber / $chapterCount 话 · 目录",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = primaryText
@@ -702,6 +724,79 @@ fun SfComicReaderScreen(
                             enabled = canNext,
                             state = comicHaze
                         )
+                    }
+                }
+            }
+
+            if (showChapterPicker && state.info != null) {
+                val chapters = state.info!!.chapters
+                val pickerState = rememberLazyListState(
+                    initialFirstVisibleItemIndex = (state.currentChapterIndex - 2).coerceAtLeast(0)
+                )
+                Dialog(onDismissRequest = { showChapterPicker = false }) {
+                    GlassSectionCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 520.dp)
+                            .heightIn(max = 520.dp),
+                        contentPadding = PaddingValues(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "章节目录（共 ${chapters.size} 话）",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = primaryText,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = { showChapterPicker = false }) {
+                                    Text("关闭")
+                                }
+                            }
+                            HorizontalDivider()
+                            LazyColumn(
+                                state = pickerState,
+                                modifier = Modifier.weight(1f, fill = false),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                itemsIndexed(chapters, key = { idx, item -> "${idx}_${item.id}" }) { index, chap ->
+                                    val selected = index == state.currentChapterIndex
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable {
+                                                showChapterPicker = false
+                                                viewModel.openChapter(index)
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "${index + 1}. ${chap.title}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (selected) accentText else primaryText,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        if (chap.isVip) {
+                                            Text(
+                                                text = "VIP",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = secondaryText
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

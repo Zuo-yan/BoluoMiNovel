@@ -81,7 +81,7 @@ fun OnboardingScreen(
                 icon = Icons.Rounded.AutoAwesome,
                 badge = "欢迎使用",
                 title = "菠萝蜜小说",
-                subtitle = "菠萝包轻小说阅读器 × 深度 AI 伴读 × 沉浸式续写与平行分支",
+                subtitle = "菠萝包轻小说阅读器 × 深度 AI 伴读 × 沉浸式续写",
                 body = listOf(
                     "BYOK 模式：接入你自己的模型密钥，所有数据只留在你的设备上",
                     "支持本地 TXT / Markdown / EPUB 导入，与菠萝包书架无缝同步阅读",
@@ -104,13 +104,13 @@ fun OnboardingScreen(
                 icon = Icons.Rounded.UploadFile,
                 badge = "STEP 02",
                 title = "第二步 · 阅读与创作",
-                subtitle = "从划线伴读到平行宇宙分支，全程由你掌控",
+                subtitle = "从划线伴读到任意章节续写，全程由你掌控",
                 body = listOf(
                     "· 书架右上角导入 TXT / Markdown / EPUB",
                     "·「菠萝包」登录账号查看书架，点书直接继续阅读",
                     "· 阅读时长按段落「划线即问」，AI 自动检索相关章节作答",
-                    "· 底栏「AI 续写」：单章续写，或 What-if 推演平行世界分支",
-                    "· 分支树中随时回看你的 AI 衍生剧情"
+                    "· 底栏「AI 续写」：基于任意章节续写，保存后直接跟在该章后面",
+                    "· 目录缩进与章节衍生图谱中随时回看你的 AI 续写内容"
                 )
             )
         )

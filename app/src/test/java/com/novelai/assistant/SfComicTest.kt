@@ -1,6 +1,8 @@
 package com.novelai.assistant
 
 import com.novelai.assistant.data.sf.SfComicLibrary
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -76,5 +78,47 @@ class SfComicTest {
         assertFalse(SfComicLibrary.isAllowedUrl("https://evil.example/b/CDWL/"))
         assertFalse(SfComicLibrary.isAllowedUrl("https://mm.sfacg.com.evil.example/b/CDWL/"))
         assertFalse(SfComicLibrary.isAllowedUrl("https://user:pass@mm.sfacg.com/b/CDWL/"))
+    }
+
+    @Test fun apiComicListAndDetailParseChronologicalChaptersAndTypes() {
+        val typesJson = Json.parseToJsonElement("""[{"typeId":1,"typeName":"热血"},{"typeId":7,"typeName":"恋爱"}]""")
+        val types = SfComicLibrary.parseApiComicTypes(typesJson)
+        assertEquals(2, types.size)
+        assertEquals("热血", types[0].name)
+
+        val listJson = Json.parseToJsonElement(
+            """[{"comicId":1887,"comicName":"妖神记","folderName":"YSJ","typeId":1,"isFinished":false,"comicCover":"https://rss.sfacg.com/web/comic/images/Logo/1.jpg","latestChapterTitle":"第538话","expand":{"typeName":"热血","authorName":"踏雪动漫","intro":"简介内容"}}]"""
+        )
+        val comics = SfComicLibrary.parseApiComicList(listJson)
+        assertEquals(1, comics.size)
+        assertEquals("1887", comics.single().slug)
+        assertEquals("YSJ", comics.single().folderName)
+        assertEquals("热血", comics.single().category)
+        assertEquals("连载中", comics.single().status)
+
+        val meta = listJson.let { Json.parseToJsonElement(it.toString()) }
+        val metaObj = Json.parseToJsonElement(
+            """{"comicId":1887,"comicName":"妖神记","folderName":"YSJ","isFinished":false,"expand":{"typeName":"热血","authorName":"踏雪动漫","intro":"简介内容"}}"""
+        ).jsonObject
+        val chaps = Json.parseToJsonElement(
+            """[
+                {"chapterId":115922,"chapterTitle":"第538话（下）","pathName":"1011_8219","isVip":true,"expand":{"needFireMoney":0}},
+                {"chapterId":4519,"chapterTitle":"第1话 重生","pathName":"001","isVip":false,"expand":{"needFireMoney":0}}
+            ]"""
+        )
+        val info = SfComicLibrary.parseApiComicDetail(metaObj, chaps)
+        assertEquals(listOf("4519", "115922"), info.chapters.map { it.id })
+        assertFalse(info.chapters[0].isVip)
+        assertTrue(info.chapters[1].isVip)
+        assertEquals("第538话（下）", info.comic.latestChapter)
+    }
+
+    @Test fun parseDetailDetectsOfficialWebErrorPages() {
+        try {
+            SfComicLibrary.parseDetail("YSJ", "<html><head><title>出错啦</title></head><body>很抱歉</body></html>")
+            fail()
+        } catch (e: Exception) {
+            assertTrue(e.message.orEmpty().contains("网页版"))
+        }
     }
 }

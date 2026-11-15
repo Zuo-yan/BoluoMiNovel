@@ -32,8 +32,12 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.BookmarkAdded
+import androidx.compose.material.icons.rounded.Bookmarks
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +57,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.items
+import com.novelai.assistant.data.db.BookmarkEntity
 import com.novelai.assistant.data.db.ChapterEntity
 import com.novelai.assistant.ui.components.AdaptiveGlassDialog
 import com.novelai.assistant.ui.components.AdaptiveGlassSheet
@@ -79,14 +85,21 @@ internal fun BoxScope.ReaderTocDrawer(
     statusBarPad: Dp,
     navBarPad: Dp,
     totalChapters: Int,
+    drawerTab: ReaderDrawerTab,
     tocFilter: TocFilter,
     tocItems: List<TocItem>,
+    bookmarks: List<BookmarkEntity>,
+    isCurrentBookmarked: Boolean,
     currentChapterId: String?,
     tocListState: LazyListState,
     onDismiss: () -> Unit,
+    onSelectDrawerTab: (ReaderDrawerTab) -> Unit,
     onSelectFilter: (TocFilter) -> Unit,
     onSelectChapter: (ChapterEntity) -> Unit,
-    onLongClickChapter: (ChapterEntity) -> Unit
+    onLongClickChapter: (ChapterEntity) -> Unit,
+    onToggleCurrentBookmark: () -> Unit,
+    onSelectBookmark: (BookmarkEntity) -> Unit,
+    onDeleteBookmark: (BookmarkEntity) -> Unit
 ) {
     val adaptive = LocalAdaptiveMetrics.current
     val isTwoPane = adaptive.twoPaneEnabled
@@ -160,7 +173,8 @@ internal fun BoxScope.ReaderTocDrawer(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "目录 · $totalChapters 章",
+                                if (drawerTab == ReaderDrawerTab.TOC) "目录 · $totalChapters 章"
+                                else "书签 · ${bookmarks.size} 条",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = primaryText,
@@ -169,60 +183,221 @@ internal fun BoxScope.ReaderTocDrawer(
                             IconButton(onClick = onDismiss) {
                                 Icon(
                                     Icons.Rounded.Close,
-                                    contentDescription = "关闭目录",
+                                    contentDescription = "关闭",
                                     tint = secondaryText
                                 )
                             }
                         }
+                        val segContainer = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+                        val segActive = if (isEffectiveDark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.90f)
                         SegmentedControl(
-                            options = TocFilter.entries.toList(),
-                            selected = tocFilter,
-                            labelOf = { it.label },
-                            onSelect = onSelectFilter,
-                            containerColor = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
-                            activeColor = if (isEffectiveDark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.90f),
+                            options = ReaderDrawerTab.entries.toList(),
+                            selected = drawerTab,
+                            labelOf = { tab ->
+                                when (tab) {
+                                    ReaderDrawerTab.TOC -> "目录 ($totalChapters)"
+                                    ReaderDrawerTab.BOOKMARKS -> "书签 (${bookmarks.size})"
+                                }
+                            },
+                            onSelect = onSelectDrawerTab,
+                            containerColor = segContainer,
+                            activeColor = segActive,
                             selectedTextColor = primaryText,
                             unselectedTextColor = secondaryText,
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
                         Spacer(Modifier.height(8.dp))
-                        LazyColumn(
-                            state = tocListState,
-                            contentPadding = PaddingValues(
-                                horizontal = 10.dp,
-                                vertical = 4.dp
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            itemsIndexed(tocItems, key = { _, item -> item.chapter.id }) { _, item ->
-                                val isCurrent = item.chapter.id == currentChapterId
+                        if (drawerTab == ReaderDrawerTab.TOC) {
+                            SegmentedControl(
+                                options = TocFilter.entries.toList(),
+                                selected = tocFilter,
+                                labelOf = { it.label },
+                                onSelect = onSelectFilter,
+                                containerColor = segContainer,
+                                activeColor = segActive,
+                                selectedTextColor = primaryText,
+                                unselectedTextColor = secondaryText,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            LazyColumn(
+                                state = tocListState,
+                                contentPadding = PaddingValues(
+                                    horizontal = 10.dp,
+                                    vertical = 4.dp
+                                ),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                itemsIndexed(tocItems, key = { _, item -> item.chapter.id }) { _, item ->
+                                    val isCurrent = item.chapter.id == currentChapterId
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(
+                                                if (isCurrent) accent.copy(alpha = 0.18f)
+                                                else Color.Transparent
+                                            )
+                                            .combinedClickable(
+                                                onClick = { onSelectChapter(item.chapter) },
+                                                onLongClick = { onLongClickChapter(item.chapter) }
+                                            )
+                                            .padding(horizontal = 12.dp, vertical = 11.dp)
+                                            .padding(start = (item.depth * 16).dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OriginBadge(item.chapter.originType.name)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            item.chapter.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (isCurrent) accent else primaryText,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // 书签快捷添加/移除按钮
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = accent.copy(alpha = if (isCurrentBookmarked) 0.18f else 0.12f),
+                                border = BorderStroke(0.7.dp, accent.copy(alpha = 0.35f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable(onClick = onToggleCurrentBookmark)
+                            ) {
                                 Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                            if (isCurrent) accent.copy(alpha = 0.18f)
-                                            else Color.Transparent
-                                        )
-                                        .combinedClickable(
-                                            onClick = { onSelectChapter(item.chapter) },
-                                            onLongClick = { onLongClickChapter(item.chapter) }
-                                        )
-                                        .padding(horizontal = 12.dp, vertical = 11.dp)
-                                        .padding(start = (item.depth * 16).dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
                                 ) {
-                                    OriginBadge(item.chapter.originType.name)
+                                    Icon(
+                                        imageVector = if (isCurrentBookmarked) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
+                                        contentDescription = null,
+                                        tint = accent,
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        item.chapter.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = if (isCurrent) accent else primaryText,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
+                                        text = if (isCurrentBookmarked) "当前页已添加书签（点击移除）" else "添加当前页为书签",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = accent
                                     )
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            if (bookmarks.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Bookmarks,
+                                            contentDescription = null,
+                                            tint = secondaryText.copy(alpha = 0.55f),
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                        Text(
+                                            "暂无书签",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = primaryText
+                                        )
+                                        Text(
+                                            "点击上方按钮，或点右上角「更多」随时记录当前阅读位置",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = secondaryText
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    items(bookmarks, key = { it.id }) { bm ->
+                                        val isSameChapter = bm.chapterId == currentChapterId
+                                        val cardBg = if (isEffectiveDark) {
+                                            Color.White.copy(alpha = if (isSameChapter) 0.10f else 0.06f)
+                                        } else {
+                                            Color.Black.copy(alpha = if (isSameChapter) 0.06f else 0.035f)
+                                        }
+                                        val cardBorder = if (isSameChapter) {
+                                            accent.copy(alpha = 0.35f)
+                                        } else if (isEffectiveDark) {
+                                            Color.White.copy(alpha = 0.10f)
+                                        } else {
+                                            Color.Black.copy(alpha = 0.06f)
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = cardBg,
+                                            border = BorderStroke(0.6.dp, cardBorder),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .clickable { onSelectBookmark(bm) }
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = bm.chapterTitle,
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = if (isSameChapter) accent else primaryText,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    Text(
+                                                        text = ReaderBookmarkHelper.formatBookmarkTime(bm.createdAt),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = secondaryText
+                                                    )
+                                                    IconButton(
+                                                        onClick = { onDeleteBookmark(bm) },
+                                                        modifier = Modifier.size(30.dp)
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Rounded.DeleteOutline,
+                                                            contentDescription = "删除书签",
+                                                            tint = secondaryText,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+                                                if (bm.excerpt.isNotBlank()) {
+                                                    Text(
+                                                        text = bm.excerpt,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = secondaryText,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.padding(end = 6.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

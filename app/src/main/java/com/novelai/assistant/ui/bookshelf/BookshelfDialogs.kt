@@ -133,7 +133,7 @@ internal fun BookActionSheet(
             )
             SimpleAction(
                 icon = Icons.Rounded.CallMerge,
-                label = "剧情分支树",
+                label = "章节衍生图谱",
                 tint = NovelColors.Teal,
                 textColor = primaryText,
                 isDark = isDark,

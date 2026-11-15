@@ -1,6 +1,8 @@
 package com.novelai.assistant.ui.components
 
 import android.content.Context
+import android.graphics.BlendMode
+import android.graphics.Color as AndroidColor
 import android.graphics.Outline
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
@@ -104,6 +106,9 @@ import com.hihonor.uikit.transparency.api.HnWidgetSize
 import com.hihonor.uikit.transparency.configuration.MachineConfig
 import com.hihonor.uikit.transparency.configuration.MachineType
 import com.hihonor.uikit.transparency.configuration.TransparencyFeatureConfig
+import com.hihonor.uikit.transparency.data.TransparencySnapshot
+import com.hihonor.uikit.transparency.effect.SceneType
+import com.hihonor.uikit.transparency.style.observers.ViewStyleLifecycleListener
 import com.novelai.assistant.ui.theme.NovelColors
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -135,7 +140,10 @@ private data class HonorGlassSpec(
     val followSystemMaterial: Boolean,
     val skipRenderLayer: Boolean,
     val showShadow: Boolean,
-    val transparencyLevel: Float
+    val transparencyLevel: Float,
+    val equalizeBackdrop: Boolean = true,
+    val isDarkBackdrop: Boolean? = null,
+    val blurRadiusDp: Float = 26f
 )
 
 private data class HonorCapabilitiesSnapshot(
@@ -266,10 +274,14 @@ fun LiquidGlassBox(
     showShadow: Boolean = true,
     shape: Shape? = null,
     blurRadius: Dp = 26.dp,
+    equalizeBackdrop: Boolean? = null,
+    nativeOverlayTint: Color? = null,
+    isDarkBackdrop: Boolean? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
     val isHonorSupported = rememberHonorTransparencySupported()
     val isLiquidEnabled = rememberHonorLiquidGlassEnabled()
+    val resolvedEqualizeBackdrop = equalizeBackdrop ?: (transparencyLevel !in 0f..1f)
     val resolvedShape = shape ?: RoundedCornerShape(cornerRadius)
     var honorRenderFailed by remember { mutableStateOf(false) }
     // 滚动列表 / 静态内容卡片（skipRenderLayer = true 且非 IMMERSIVE 浮层）不使用原生 HnVisualEffectLayout：
@@ -292,7 +304,10 @@ fun LiquidGlassBox(
             followSystemMaterial = followSystemMaterial,
             skipRenderLayer = skipRenderLayer,
             showShadow = showShadow,
-            transparencyLevel = transparencyLevel
+            transparencyLevel = transparencyLevel,
+            equalizeBackdrop = resolvedEqualizeBackdrop,
+            isDarkBackdrop = isDarkBackdrop,
+            blurRadiusDp = blurRadius.value
         )
         val layoutHolder = remember { arrayOfNulls<HnVisualEffectLayout>(1) }
 
@@ -314,6 +329,21 @@ fun LiquidGlassBox(
             }
         } else {
             Modifier
+        }
+
+        val effectiveDark = isDarkBackdrop ?: (MaterialTheme.colorScheme.surface.luminance() < 0.5f)
+        val equalizedRimBrush = if (resolvedEqualizeBackdrop && borderWidth > 0.dp) {
+            remember(effectiveDark) {
+                Brush.verticalGradient(
+                    if (effectiveDark) {
+                        listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.08f))
+                    } else {
+                        listOf(Color.White.copy(alpha = 0.94f), Color.Black.copy(alpha = 0.07f))
+                    }
+                )
+            }
+        } else {
+            null
         }
 
         Box(
@@ -373,6 +403,20 @@ fun LiquidGlassBox(
                     }
                 }
             )
+            if (nativeOverlayTint != null && nativeOverlayTint.alpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(nativeOverlayTint)
+                )
+            }
+            if (equalizedRimBrush != null) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .border(borderWidth, equalizedRimBrush, resolvedShape)
+                )
+            }
             content()
         }
     } else {
@@ -422,13 +466,14 @@ private fun applyHonorGlassSpecSafe(view: HnVisualEffectLayout, spec: HonorGlass
             HnGlassEffect(mat, scene)
         }.apply {
             setFollowSystemSettings(true)
-            setAdaptToBackground(true)
+            setAdaptToBackground(!spec.equalizeBackdrop)
             setWidgetSize(
                 if (spec.widgetSize == GlassWidgetSize.BIG) HnWidgetSize.BIG else HnWidgetSize.SMALL
             )
             setRadius(spec.radiusPx)
             setSkipRenderLayer(spec.skipRenderLayer)
-            if (spec.transparencyLevel in 0f..1f) {
+            // equalizeBackdrop 模式下由 ViewStyleLifecycleListener 直接定制光学参数，避免透明算法覆盖 BlurParam
+            if (!spec.equalizeBackdrop && spec.transparencyLevel in 0f..1f) {
                 setTransparencyLevel(spec.transparencyLevel)
             }
             setInteractive(spec.interactive)
@@ -446,6 +491,15 @@ private fun applyHonorGlassSpecSafe(view: HnVisualEffectLayout, spec: HonorGlass
         }
         view.clipToOutline = true
         view.setVisualEffect(effect)
+        // HnVisualEffect.registerStyleLifecycleListener 仅在 mViewStyle 非空时生效；
+        // 必须放在 view.setVisualEffect(effect) 之后（mViewStyle 初始化完毕、APPLY_BEFORE_DRAW 尚未触发前）
+        if (spec.equalizeBackdrop || !spec.showShadow) {
+            effect.registerStyleLifecycleListener(object : ViewStyleLifecycleListener {
+                override fun onCreatedParams(snapshot: TransparencySnapshot) {
+                    tuneHonorLiquidGlassSnapshot(snapshot, spec)
+                }
+            })
+        }
 
         // 始终禁止 HnVisualEffectLayout 拦截/消费点击事件，防止 AndroidViewHolder 吞掉外层 Compose .clickable
         // （如添加提供商弹窗中的关闭按钮 X）；交互流光与形变由 touchForwardModifier 调用 effect.onTouchEvent(true, copy) 驱动。
@@ -458,6 +512,68 @@ private fun applyHonorGlassSpecSafe(view: HnVisualEffectLayout, spec: HonorGlass
         Log.e("HonorLiquidGlass", "Failed to apply Honor visual effect, falling back to Compose", t)
         runCatching { view.setVisualEffect(null) }
         false
+    }
+}
+
+/**
+ * 针对纯色纸张/宽幅悬浮栏柔化荣耀原生液体玻璃折射参数：
+ * 保留真实边缘折射与触控光晕，同时消除默认 LiquidSmallOnHighImmersive 的 #40000000 黑边与内白块断层。
+ */
+private fun tuneHonorLiquidGlassSnapshot(
+    snapshot: TransparencySnapshot,
+    spec: HonorGlassSpec
+) {
+    runCatching {
+        val repo = snapshot.paramsRepo?.highGradeMaterialRepo ?: return
+        val isDark = spec.isDarkBackdrop ?: SceneType.isDark(snapshot.scenes)
+
+        if (!spec.showShadow) {
+            repo.shadowParam?.apply {
+                setColor(0, 0)
+                setRadius(0f)
+                setDx(0f)
+                setDy(0f)
+            }
+        }
+
+        if (!spec.equalizeBackdrop) return
+
+        repo.glassParam?.apply {
+            setMaskColor(AndroidColor.TRANSPARENT)
+            setOpacity(0f)
+            setRefraction(0.14f)
+            setThickness(0.08f)
+            setDepth(0.06f)
+            setDisperation(0.06f)
+        }
+
+        repo.blurParam?.apply {
+            setRadius(spec.blurRadiusDp.coerceIn(18.0f, 75.0f))
+            setSaturation(if (isDark) 1.15f else 1.08f)
+            if (isDark) {
+                setColors(intArrayOf(0x181A24, 0x242836), intArrayOf(116, 44))
+            } else {
+                setColors(intArrayOf(0xF2F4F8, 0xF6F7FB), intArrayOf(72, 24))
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setBlendModeArray(arrayOf(BlendMode.SRC_OVER, BlendMode.SRC_OVER))
+            }
+        }
+
+        repo.highLightParam?.apply {
+            setAngle(235)
+            setThickness(1.5f)
+            setColor(0xFFFFFF, if (isDark) 96 else 140)
+        }
+
+        if (spec.showShadow) {
+            repo.shadowParam?.apply {
+                setRadius(14.0f)
+                setDx(0f)
+                setDy(2.0f)
+                setColor(0x000000, if (isDark) 22 else 10)
+            }
+        }
     }
 }
 

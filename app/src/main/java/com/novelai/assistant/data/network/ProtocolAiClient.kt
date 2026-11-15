@@ -17,11 +17,14 @@ class ProtocolAiClient(client: HttpClient, private val kind: ProviderKind, priva
     override suspend fun ping(config: ApiProviderConfig): Result<Long> {
         val start = System.currentTimeMillis()
         return try {
-            metadata.list(config.copy(kind = kind))
+            metadata.list(config.copy(kind = kind), ModelListPurpose.ALL)
             Result.success(System.currentTimeMillis() - start)
         } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
-    override suspend fun listModels(config: ApiProviderConfig): Result<List<String>> = try { Result.success(metadata.list(config.copy(kind = kind))) }
+    override suspend fun listModels(
+        config: ApiProviderConfig,
+        purpose: ModelListPurpose
+    ): Result<List<String>> = try { Result.success(metadata.list(config.copy(kind = kind), purpose)) }
         catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
 
     override fun streamChat(config: ApiProviderConfig, messages: List<ChatMessage>, maxTokens: Int, temperature: Float): Flow<StreamEvent> = flow {

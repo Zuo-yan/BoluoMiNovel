@@ -9,6 +9,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.novelai.assistant.data.generation.GenerationNavBus
 import com.novelai.assistant.data.prefs.AppThemeMode
 import com.novelai.assistant.data.tts.ListeningNavBus
 import com.novelai.assistant.ui.novel.AppViewModel
@@ -22,6 +23,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var listeningNavBus: ListeningNavBus
+
+    @Inject
+    lateinit var generationNavBus: GenerationNavBus
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,7 +59,10 @@ class MainActivity : ComponentActivity() {
                 onDispose {}
             }
             NovelAITheme(darkTheme = darkTheme) {
-                NovelApp(listeningNavBus = listeningNavBus)
+                NovelApp(
+                    listeningNavBus = listeningNavBus,
+                    generationNavBus = generationNavBus
+                )
             }
         }
     }
@@ -67,9 +74,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkListeningIntent(intent: Intent?) {
-        if (intent?.getStringExtra("EXTRA_ROUTE") == "listening") {
-            intent.removeExtra("EXTRA_ROUTE")
-            listeningNavBus.requestOpenListening()
+        when (intent?.getStringExtra(EXTRA_ROUTE)) {
+            ROUTE_LISTENING -> {
+                intent.removeExtra(EXTRA_ROUTE)
+                listeningNavBus.requestOpenListening()
+            }
+            ROUTE_GENERATE -> {
+                val bookId = intent.getStringExtra(EXTRA_BOOK_ID).orEmpty()
+                val chapterId = intent.getStringExtra(EXTRA_CHAPTER_ID).orEmpty()
+                val mode = intent.getStringExtra(EXTRA_MODE) ?: "CONTINUATION"
+                intent.removeExtra(EXTRA_ROUTE)
+                if (bookId.isNotBlank()) {
+                    generationNavBus.requestOpenGeneration(bookId, chapterId, mode)
+                }
+            }
         }
+    }
+
+    companion object {
+        const val EXTRA_ROUTE = "EXTRA_ROUTE"
+        const val ROUTE_LISTENING = "listening"
+        const val ROUTE_GENERATE = "generate"
+        const val EXTRA_BOOK_ID = "EXTRA_BOOK_ID"
+        const val EXTRA_CHAPTER_ID = "EXTRA_CHAPTER_ID"
+        const val EXTRA_MODE = "EXTRA_MODE"
     }
 }

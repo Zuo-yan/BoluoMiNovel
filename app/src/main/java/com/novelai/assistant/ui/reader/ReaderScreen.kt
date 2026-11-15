@@ -50,6 +50,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelai.assistant.data.db.BookSourceType
 import com.novelai.assistant.data.db.ChapterEntity
+import com.novelai.assistant.data.prefs.ReadingAnchor
 import com.novelai.assistant.data.prefs.AppThemeMode
 import com.novelai.assistant.data.prefs.PageMode
 import com.novelai.assistant.data.prefs.ReaderBgTheme
@@ -88,7 +89,10 @@ fun ReaderScreen(
     val tocOpen by viewModel.tocOpen.collectAsStateWithLifecycle()
     val settingsOpen by viewModel.settingsOpen.collectAsStateWithLifecycle()
     val tocFilter by viewModel.tocFilter.collectAsStateWithLifecycle()
+    val tocDrawerTab by viewModel.tocDrawerTab.collectAsStateWithLifecycle()
     val tocItems by viewModel.tocItems.collectAsStateWithLifecycle()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val bookmarkJumpSeq by viewModel.bookmarkJumpSeq.collectAsStateWithLifecycle()
     val quotedText by viewModel.quotedText.collectAsStateWithLifecycle()
     val paragraphCommentsQuote by viewModel.paragraphCommentsQuote.collectAsStateWithLifecycle()
     val paragraphComments by viewModel.paragraphComments.collectAsStateWithLifecycle()
@@ -137,11 +141,26 @@ fun ReaderScreen(
 
     var exportMarkdown by remember { mutableStateOf(true) }
     var selectionMode by remember { mutableStateOf(false) }
+    var overflowMenuOpen by remember { mutableStateOf(false) }
     var actionChapter by remember { mutableStateOf<ChapterEntity?>(null) }
     var renameChapterTarget by remember { mutableStateOf<ChapterEntity?>(null) }
     var renameTitleDraft by remember { mutableStateOf("") }
     var confirmDeleteChapter by remember { mutableStateOf<ChapterEntity?>(null) }
     var currentVisibleParaIndex by remember { mutableIntStateOf(0) }
+    var currentAnchor by remember(currentChapter?.id, bookmarkJumpSeq) {
+        mutableStateOf(
+            currentChapter?.id?.let { viewModel.readPosition(it) } ?: ReadingAnchor()
+        )
+    }
+    val isCurrentBookmarked = currentChapter?.id?.let { chId ->
+        ReaderBookmarkHelper.findMatchingBookmark(bookmarks, chId, currentAnchor.paragraph) != null
+    } == true
+
+    LaunchedEffect(chromeVisible, tocOpen, settingsOpen) {
+        if (!chromeVisible || tocOpen || settingsOpen) {
+            overflowMenuOpen = false
+        }
+    }
 
     // 阅读亮度（1.0 = 跟随系统）
     var brightness by remember { mutableFloatStateOf(1f) }
@@ -217,11 +236,12 @@ fun ReaderScreen(
     }
 
     BackHandler(
-        enabled = selectionMode || tocOpen || settingsOpen || timerSheetOpen ||
+        enabled = overflowMenuOpen || selectionMode || tocOpen || settingsOpen || timerSheetOpen ||
             quotedText != null || paragraphCommentsOpen ||
             actionChapter != null || renameChapterTarget != null || confirmDeleteChapter != null
     ) {
         when {
+            overflowMenuOpen -> overflowMenuOpen = false
             selectionMode -> {
                 selectionMode = false
                 viewModel.clearQuote()
@@ -239,6 +259,7 @@ fun ReaderScreen(
 
     val statusBarPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    var topBarBottomDp by remember(statusBarPad) { mutableStateOf(statusBarPad + 76.dp) }
     val readerHazeState = rememberGlassState()
     val accent = if (isChromeDark) NovelColors.IndigoLight else NovelColors.Indigo
 
@@ -271,7 +292,10 @@ fun ReaderScreen(
                                             PagedContent(
                                                 chapterId = chapter.id,
                                                 readPosition = { viewModel.readPosition(chapter.id) },
-                                                savePosition = { viewModel.savePosition(chapter.id, it) },
+                                                savePosition = { anchor ->
+                                                    currentAnchor = anchor
+                                                    viewModel.savePosition(chapter.id, anchor)
+                                                },
                                                 paragraphs = paragraphs,
                                                 settings = settings,
                                                 palette = palette,
@@ -298,13 +322,17 @@ fun ReaderScreen(
                                                 hasNextChapter = chapterIndex < chapters.lastIndex,
                                                 hasPrevChapter = chapterIndex > 0,
                                                 selectionMode = selectionMode,
-                                                targetPageProvider = { viewModel.consumeTargetPage() }
+                                                targetPageProvider = { viewModel.consumeTargetPage() },
+                                                anchorVersion = bookmarkJumpSeq
                                             )
                                         } else {
                                             ScrollContent(
                                                 chapterId = chapter.id,
                                                 readPosition = { viewModel.readPosition(chapter.id) },
-                                                savePosition = { viewModel.savePosition(chapter.id, it) },
+                                                savePosition = { anchor ->
+                                                    currentAnchor = anchor
+                                                    viewModel.savePosition(chapter.id, anchor)
+                                                },
                                                 paragraphs = paragraphs,
                                                 settings = settings,
                                                 palette = palette,
@@ -322,7 +350,8 @@ fun ReaderScreen(
                                                 },
                                                 onProgress = { viewModel.scheduleProgressSave() },
                                                 onVisibleParaChange = { currentVisibleParaIndex = it },
-                                                selectionMode = selectionMode
+                                                selectionMode = selectionMode,
+                                                anchorVersion = bookmarkJumpSeq
                                             )
                                         }
                                     }
@@ -360,17 +389,44 @@ fun ReaderScreen(
                                 accent = accent,
                                 bookTitle = book?.title ?: "",
                                 chapterTitle = currentChapter?.title ?: "",
-                                sourceType = book?.sourceType,
-                                hasChapterContent = currentChapter?.content?.isNotBlank() == true,
                                 chapterIndex = chapterIndex,
                                 totalChapters = chapters.size,
-                                selectionMode = selectionMode,
+                                overflowMenuOpen = overflowMenuOpen,
                                 onBack = onBack,
-                                onOpenDetailOrToc = { onOpenDetail?.invoke(bookId) ?: viewModel.openToc() },
+                                onOpenDetailOrToc = {
+                                    overflowMenuOpen = false
+                                    onOpenDetail?.invoke(bookId) ?: viewModel.openToc()
+                                },
                                 onToggleNightMode = {
+                                    overflowMenuOpen = false
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.toggleNightMode(isDarkReader)
                                 },
+                                onToggleOverflowMenu = { overflowMenuOpen = !overflowMenuOpen },
+                                onTopBarBottomChanged = { topBarBottomDp = it }
+                            )
+
+                            // ---------- 顶栏右上角「更多」液态玻璃浮层 ----------
+                            ReaderOverflowMenu(
+                                visible = chromeVisible && !tocOpen && overflowMenuOpen,
+                                topOffset = topBarBottomDp,
+                                hazeState = readerHazeState,
+                                isDarkReader = isDarkReader,
+                                palette = palette,
+                                onChromeColor = onChromeColor,
+                                secondaryColor = secondaryColor,
+                                accent = accent,
+                                sourceType = book?.sourceType,
+                                hasChapterContent = currentChapter?.content?.isNotBlank() == true,
+                                selectionMode = selectionMode,
+                                isCurrentBookmarked = isCurrentBookmarked,
+                                bookmarkCount = bookmarks.size,
+                                onDismiss = { overflowMenuOpen = false },
+                                onToggleBookmark = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.toggleBookmarkAt(currentAnchor)
+                                },
+                                onOpenBookmarks = { viewModel.openToc(ReaderDrawerTab.BOOKMARKS) },
                                 onOpenSfTools = { sfToolsOpen = true },
                                 onToggleSelectionMode = {
                                     selectionMode = !selectionMode
@@ -471,7 +527,7 @@ fun ReaderScreen(
                                 }
                             )
 
-                            // ---------- 目录抽屉 / 平板悬浮玻璃侧栏 ----------
+                            // ---------- 目录与书签抽屉 / 平板悬浮玻璃侧栏 ----------
                             ReaderTocDrawer(
                                 visible = tocOpen,
                                 bgColor = bgColor,
@@ -481,19 +537,37 @@ fun ReaderScreen(
                                 statusBarPad = statusBarPad,
                                 navBarPad = navBarPad,
                                 totalChapters = chapters.size,
+                                drawerTab = tocDrawerTab,
                                 tocFilter = tocFilter,
                                 tocItems = tocItems,
+                                bookmarks = bookmarks,
+                                isCurrentBookmarked = isCurrentBookmarked,
                                 currentChapterId = currentChapter?.id,
                                 tocListState = tocListState,
                                 onDismiss = { viewModel.closeToc() },
+                                onSelectDrawerTab = { viewModel.setTocDrawerTab(it) },
                                 onSelectFilter = { viewModel.setTocFilter(it) },
                                 onSelectChapter = { ch ->
-                                    viewModel.setChapterIndex(ch.chapterIndex)
+                                    val idx = chapters.indexOfFirst { it.id == ch.id }
+                                        .takeIf { it >= 0 } ?: ch.chapterIndex
+                                    viewModel.setChapterIndex(idx)
                                     viewModel.closeToc()
                                 },
                                 onLongClickChapter = { ch ->
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     actionChapter = ch
+                                },
+                                onToggleCurrentBookmark = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.toggleBookmarkAt(currentAnchor)
+                                },
+                                onSelectBookmark = { bm ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.jumpToBookmark(bm)
+                                },
+                                onDeleteBookmark = { bm ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.deleteBookmark(bm.id)
                                 }
                             )
                         }

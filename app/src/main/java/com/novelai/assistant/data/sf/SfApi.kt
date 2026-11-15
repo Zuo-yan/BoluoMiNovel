@@ -31,16 +31,23 @@ class SfApi(
         recovery: Boolean = false
     ): Pair<JsonElement, SfResponse> {
         // Public reads carry no account session. A transient 417 is a protocol error,
-        // not proof of account risk. Re-sign at most twice, still using the shared queue.
+        // not proof of account risk. Re-sign and retry, still using the shared queue.
         val anonymousRead = cookie.isBlank() && body == null && method == "GET" &&
-            (path == "noveltypes" || listOf("novels/", "novel/", "ranks/", "search/", "Chaps/").any { path.startsWith(it) })
-        val attempts = if (anonymousRead) 3 else 1
+            (path == "noveltypes" || path == "comictypes" ||
+                listOf("novels/", "novel/", "comics", "ranks/", "search/", "Chaps/").any { path.startsWith(it) })
+        val comicChapters = path.startsWith("comics/") && path.endsWith("/chaps")
+        val attempts = when {
+            comicChapters -> 7
+            anonymousRead -> 3
+            else -> 1
+        }
         repeat(attempts) { attempt ->
             try {
                 return requestOnce(path, cookie, body, method, recovery)
             } catch (e: SfException) {
                 if (e.kind != SfFailureKind.SIGNATURE || attempt == attempts - 1) throw e
-                delay((attempt + 1) * 1_000L)
+                val backoffMs = if (comicChapters) (attempt + 1).coerceAtMost(3) * 350L else (attempt + 1) * 1_000L
+                delay(backoffMs)
             }
         }
         error("Unreachable")
@@ -404,4 +411,31 @@ class SfApi(
     }
 
     fun parseNovelComments(data: JsonElement): List<SfComment> = SfProtocol.parseNovelComments(data)
+
+    suspend fun comicTypes(): List<SfCategory> =
+        SfComicLibrary.parseApiComicTypes(request("comictypes").first)
+
+    suspend fun comicCatalog(categoryId: Int? = null, page: Int = 1, size: Int = 20): List<SfComic> {
+        require(page > 0 && size in 1..50)
+        val p0 = page - 1
+        val tidQuery = categoryId?.let { "&tid=$it" }.orEmpty()
+        val data = request("comics?page=$p0&size=$size$tidQuery&expand=typeName,comicType,intro,authorName").first
+        return SfComicLibrary.parseApiComicList(data)
+    }
+
+    suspend fun comicSearch(keyword: String, page: Int = 1, size: Int = 20): List<SfComic> {
+        require(page > 0 && size in 1..50)
+        val q = URLEncoder.encode(keyword.trim(), "UTF-8")
+        val p0 = page - 1
+        val data = request("search/comics/result?q=$q&page=$p0&size=$size&expand=typeName,comicType,intro,authorName").first
+        val list = (data as? JsonObject)?.get("comics") ?: data
+        return SfComicLibrary.parseApiComicList(list)
+    }
+
+    suspend fun comicDetail(comicId: String): SfComicInfo {
+        require(comicId.matches(Regex("\\d+"))) { "无效漫画编号" }
+        val meta = request("comics/$comicId?expand=typeName,comicType,intro,authorName").first.jsonObject
+        val chaps = request("comics/$comicId/chaps").first
+        return SfComicLibrary.parseApiComicDetail(meta, chaps)
+    }
 }

@@ -5,7 +5,9 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -104,12 +106,22 @@ fun AsyncCover(
     }
 
     Box(modifier = modifier.clip(shape), contentAlignment = Alignment.Center) {
-        if (bitmap != null) {
+        val loaded = bitmap
+        if (loaded != null) {
+            val imageModifier = if (contentScale == ContentScale.FillWidth) {
+                val ratio = (loaded.width.toFloat() / loaded.height.coerceAtLeast(1).toFloat())
+                    .coerceIn(0.05f, 10f)
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(ratio)
+            } else {
+                Modifier.fillMaxSize()
+            }
             Image(
-                bitmap = bitmap!!.asImageBitmap(),
+                bitmap = loaded.asImageBitmap(),
                 contentDescription = title,
                 contentScale = contentScale,
-                modifier = Modifier.fillMaxSize()
+                modifier = imageModifier
             )
         } else {
             placeholder()

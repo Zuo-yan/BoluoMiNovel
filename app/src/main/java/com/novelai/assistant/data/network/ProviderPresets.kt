@@ -37,17 +37,17 @@ object ProviderPresets {
         val host = runCatching { java.net.URI(baseUrl).host }.getOrNull().orEmpty()
         val candidates = when {
             presetId == "deepseek" || host.contains("deepseek") ->
-                listOf("deepseek-chat", "deepseek-reasoner")
+                listOf("deepseek-v4-pro", "deepseek-flash", "deepseek-chat", "deepseek-reasoner")
             presetId == "anthropic" || host.contains("anthropic") ->
                 listOf("claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229")
             presetId == "openai" || host.contains("openai") ->
-                listOf("gpt-4o", "gpt-4o-mini", "o3-mini", "gpt-4.5-preview")
+                listOf("gpt-6.1-sol", "gpt-6-sol", "gpt-4.1", "gpt-4o", "gpt-4o-mini")
             presetId == "google" || host.contains("googleapis") ->
-                listOf("gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash")
+                listOf("gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash")
             presetId == "moonshot" || host.contains("moonshot") ->
-                listOf("moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k")
+                listOf("moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k")
             presetId == "zai" || host.contains("bigmodel.cn") || host.contains("z.ai") ->
-                listOf("glm-4-plus", "glm-4-flash", "glm-4-long")
+                listOf("glm-4-plus", "glm-4-long", "glm-4-flash")
             presetId == "aliyun" || host.contains("aliyuncs.com") ->
                 listOf("qwen-max", "qwen-plus", "qwen-turbo")
             else ->

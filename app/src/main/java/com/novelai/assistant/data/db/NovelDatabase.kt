@@ -17,13 +17,25 @@ class Converters {
     fun chapterOriginTypeToString(value: ChapterOriginType): String = value.name
 
     @TypeConverter
-    fun stringToChapterOriginType(value: String): ChapterOriginType =
-        ChapterOriginType.entries.firstOrNull { it.name == value } ?: ChapterOriginType.ORIGINAL
+    fun stringToChapterOriginType(value: String): ChapterOriginType = when (value) {
+        ChapterOriginType.AI_CONTINUATION.name, "AI_BRANCH" -> ChapterOriginType.AI_CONTINUATION
+        else -> ChapterOriginType.ORIGINAL
+    }
 }
 
 @Database(
-    entities = [BookEntity::class, ChapterEntity::class, AiChatRecordEntity::class, CategoryEntity::class],
-    version = 3,
+    entities = [
+        BookEntity::class,
+        ChapterEntity::class,
+        AiChatRecordEntity::class,
+        CategoryEntity::class,
+        BookOutlineEntity::class,
+        OutlineDiscussionEntity::class,
+        ChapterSummaryEntity::class,
+        RagVectorCacheEntity::class,
+        BookmarkEntity::class
+    ],
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -32,6 +44,11 @@ abstract class NovelDatabase : RoomDatabase() {
     abstract fun chapterDao(): ChapterDao
     abstract fun chatDao(): ChatDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun outlineDao(): OutlineDao
+    abstract fun outlineDiscussionDao(): OutlineDiscussionDao
+    abstract fun chapterSummaryDao(): ChapterSummaryDao
+    abstract fun ragVectorCacheDao(): RagVectorCacheDao
+    abstract fun bookmarkDao(): BookmarkDao
 }
 
 val SF_MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
@@ -48,5 +65,105 @@ val SF_MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
 val SF_MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
     override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE books ADD COLUMN inBookshelf INTEGER NOT NULL DEFAULT 1")
+    }
+}
+
+val SF_MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `book_outlines` (
+                `bookId` TEXT NOT NULL,
+                `masterOutline` TEXT NOT NULL,
+                `upcomingPlan` TEXT NOT NULL,
+                `useInContinuation` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`bookId`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `outline_discussions` (
+                `id` TEXT NOT NULL,
+                `bookId` TEXT NOT NULL,
+                `anchorChapterId` TEXT,
+                `role` TEXT NOT NULL,
+                `content` TEXT NOT NULL,
+                `quickOptionsJson` TEXT NOT NULL,
+                `proposedMasterOutline` TEXT,
+                `proposedUpcomingPlan` TEXT,
+                `modelUsed` TEXT,
+                `timestamp` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_outline_discussions_bookId_timestamp` ON `outline_discussions` (`bookId`, `timestamp`)"
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `chapter_summaries` (
+                `chapterId` TEXT NOT NULL,
+                `bookId` TEXT NOT NULL,
+                `contentHash` TEXT NOT NULL,
+                `plotSummary` TEXT NOT NULL,
+                `characterStates` TEXT NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`chapterId`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_chapter_summaries_bookId` ON `chapter_summaries` (`bookId`)"
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `rag_vector_cache` (
+                `cacheKey` TEXT NOT NULL,
+                `bookId` TEXT NOT NULL,
+                `chapterId` TEXT NOT NULL,
+                `contentHash` TEXT NOT NULL,
+                `vectorBytes` BLOB NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`cacheKey`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_rag_vector_cache_bookId` ON `rag_vector_cache` (`bookId`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_rag_vector_cache_bookId_chapterId` ON `rag_vector_cache` (`bookId`, `chapterId`)"
+        )
+    }
+}
+
+val SF_MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `bookmarks` (
+                `id` TEXT NOT NULL,
+                `bookId` TEXT NOT NULL,
+                `chapterId` TEXT NOT NULL,
+                `chapterIndex` INTEGER NOT NULL,
+                `chapterTitle` TEXT NOT NULL,
+                `paragraphIndex` INTEGER NOT NULL,
+                `charOffset` INTEGER NOT NULL,
+                `scrollOffset` INTEGER NOT NULL,
+                `excerpt` TEXT NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_bookmarks_bookId_createdAt` ON `bookmarks` (`bookId`, `createdAt`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_bookmarks_bookId_chapterId` ON `bookmarks` (`bookId`, `chapterId`)"
+        )
     }
 }

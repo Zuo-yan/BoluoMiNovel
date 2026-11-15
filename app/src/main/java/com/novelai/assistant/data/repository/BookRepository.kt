@@ -27,6 +27,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -48,11 +49,13 @@ class BookRepository @Inject constructor(
 ) {
     fun observeBooks(): Flow<List<BookEntity>> = bookDao.observeAll()
     fun observeBook(id: String): Flow<BookEntity?> = bookDao.observeById(id)
-    fun observeChapters(bookId: String): Flow<List<ChapterEntity>> = chapterDao.observeByBook(bookId)
+    fun observeChapters(bookId: String): Flow<List<ChapterEntity>> =
+        chapterDao.observeByBook(bookId).map { normalizeChaptersOrder(it) }
     fun observeChapter(id: String): Flow<ChapterEntity?> = chapterDao.observeById(id)
 
     suspend fun getBook(id: String): BookEntity? = bookDao.getById(id)
-    suspend fun getChapters(bookId: String): List<ChapterEntity> = chapterDao.getByBook(bookId)
+    suspend fun getChapters(bookId: String): List<ChapterEntity> =
+        normalizeChaptersOrder(chapterDao.getByBook(bookId))
     suspend fun getChapter(id: String): ChapterEntity? = chapterDao.getById(id)
     suspend fun readableChapter(id: String): ChapterEntity = sfLibrary.readable(id)
     suspend fun readableChapterWithComments(
@@ -155,9 +158,24 @@ class BookRepository @Inject constructor(
     suspend fun deleteBook(bookId: String) {
         database.withTransaction {
             chapterDao.deleteByBook(bookId)
+            database.bookmarkDao().deleteByBook(bookId)
+            database.chatDao().clearByBook(bookId)
+            database.outlineDao().deleteByBook(bookId)
+            database.outlineDiscussionDao().deleteByBook(bookId)
+            database.chapterSummaryDao().deleteByBook(bookId)
+            database.ragVectorCacheDao().deleteByBook(bookId)
             bookDao.delete(bookId)
         }
     }
+
+    fun observeBookmarks(bookId: String): Flow<List<com.novelai.assistant.data.db.BookmarkEntity>> =
+        database.bookmarkDao().observeByBook(bookId)
+
+    suspend fun addBookmark(bookmark: com.novelai.assistant.data.db.BookmarkEntity) =
+        database.bookmarkDao().insert(bookmark)
+
+    suspend fun deleteBookmark(bookmarkId: String) =
+        database.bookmarkDao().deleteById(bookmarkId)
 
     suspend fun saveProgress(bookId: String, chapterIndex: Int, totalChapters: Int) {
         val percent = if (totalChapters > 0) (chapterIndex + 1f) / totalChapters * 100f else 0f
@@ -193,39 +211,103 @@ class BookRepository @Inject constructor(
 
     suspend fun deleteChapter(bookId: String, chapterId: String) {
         database.withTransaction {
+            val existing = normalizeChaptersOrder(chapterDao.getByBook(bookId))
+            val deleted = existing.firstOrNull { it.id == chapterId }
+            val currentBook = bookDao.getById(bookId)
+            val viewedChapterId = currentBook?.let {
+                existing.getOrNull(it.currentReadingChapterIndex)?.id
+            }
+
+            // 若删除了中间衍生章且其下仍有子续写，把子节点改挂到上一层父章节，避免脱节
+            val reparented = existing
+                .filter { it.id != chapterId }
+                .map { ch ->
+                    if (deleted != null && ch.parentChapterId == deleted.id) {
+                        ch.copy(parentChapterId = deleted.parentChapterId)
+                    } else {
+                        ch
+                    }
+                }
+            val reindexed = normalizeChaptersOrder(reparented)
+            val beforeById = existing.associateBy { it.id }
+            val changed = reindexed.filter { ch ->
+                val prev = beforeById[ch.id]
+                prev == null || prev.chapterIndex != ch.chapterIndex || prev.parentChapterId != ch.parentChapterId
+            }
+
             chapterDao.delete(chapterId)
-            val remaining = chapterDao.countByBook(bookId)
-            bookDao.getById(bookId)?.let {
-                bookDao.update(it.copy(totalChapters = remaining))
+            database.bookmarkDao().deleteByChapter(chapterId)
+            if (changed.isNotEmpty()) {
+                chapterDao.insertAll(changed)
+            }
+            currentBook?.let { b ->
+                val newIndex = when {
+                    reindexed.isEmpty() -> 0
+                    viewedChapterId != null && viewedChapterId != chapterId ->
+                        reindexed.indexOfFirst { it.id == viewedChapterId }
+                            .takeIf { it >= 0 }
+                            ?: b.currentReadingChapterIndex.coerceIn(0, reindexed.lastIndex)
+                    else -> b.currentReadingChapterIndex.coerceIn(0, reindexed.lastIndex)
+                }
+                bookDao.update(b.copy(totalChapters = reindexed.size, currentReadingChapterIndex = newIndex))
             }
         }
     }
 
-    /** 保存 AI 生成内容为新章节（续写 / 分支） */
+    /** 保存 AI 生成内容为新章节（紧跟在所续写父章节及其已有子树之后） */
     suspend fun saveGeneratedChapter(
         bookId: String,
         parentChapterId: String?,
         title: String,
         content: String,
         promptUsed: String?,
-        originType: ChapterOriginType
+        originType: ChapterOriginType = ChapterOriginType.AI_CONTINUATION
     ): ChapterEntity = database.withTransaction {
-        val nextIndex = (chapterDao.maxChapterIndex(bookId) ?: -1) + 1
-        val chapter = ChapterEntity(
+        val existing = normalizeChaptersOrder(chapterDao.getByBook(bookId))
+        val existingById = existing.associateBy { it.id }
+        val currentBook = bookDao.getById(bookId)
+        val viewedChapterId = currentBook?.let {
+            existing.getOrNull(it.currentReadingChapterIndex)?.id
+        }
+
+        val resolvedParentId = parentChapterId?.takeIf { it in existingById }
+        val maxCreatedAt = existing.maxOfOrNull { it.createdAt } ?: 0L
+        val createdAt = maxOf(System.currentTimeMillis(), maxCreatedAt + 1L)
+        val normalizedOrigin = if (originType == ChapterOriginType.ORIGINAL) {
+            ChapterOriginType.ORIGINAL
+        } else {
+            ChapterOriginType.AI_CONTINUATION
+        }
+        val newChapter = ChapterEntity(
             id = UUID.randomUUID().toString(),
             bookId = bookId,
-            chapterIndex = nextIndex,
+            chapterIndex = existing.size,
             title = title,
             content = content.trim(),
-            originType = originType,
-            parentChapterId = parentChapterId,
-            promptUsed = promptUsed
+            originType = normalizedOrigin,
+            parentChapterId = resolvedParentId,
+            promptUsed = promptUsed,
+            createdAt = createdAt
         )
-        chapterDao.insert(chapter)
-        bookDao.getById(bookId)?.let {
-            bookDao.update(it.copy(totalChapters = chapterDao.countByBook(bookId)))
+
+        val reindexed = normalizeChaptersOrder(existing + newChapter)
+        val changed = reindexed.filter { ch ->
+            ch.id == newChapter.id || existingById[ch.id]?.chapterIndex != ch.chapterIndex
         }
-        chapter
+        chapterDao.insertAll(changed)
+
+        currentBook?.let { b ->
+            val newCurrentIndex = viewedChapterId?.let { vid ->
+                reindexed.indexOfFirst { it.id == vid }.takeIf { it >= 0 }
+            } ?: b.currentReadingChapterIndex
+            bookDao.update(
+                b.copy(
+                    totalChapters = reindexed.size,
+                    currentReadingChapterIndex = newCurrentIndex
+                )
+            )
+        }
+        reindexed.first { it.id == newChapter.id }
     }
 
     suspend fun appendToChapter(chapterId: String, extra: String) {
@@ -234,34 +316,112 @@ class BookRepository @Inject constructor(
     }
 
     /**
-     * 获取指定章节的完整前文剧情线（自动处理主线与平行分支宇宙）：
-     * - 如果目标章节属于分支，沿 parentChapterId 逆向追溯直到最初分叉的原文主线，再向前拼接主线前文
-     * - 完美剔除当前分支世界线之外的无关章节
+     * 获取指定章节的完整前文剧情线：
+     * - 若该章节有 parentChapterId，沿父节点逆向追溯直至原作主线，再拼接前序原作章
+     * - 若缺失 parentChapterId（或中间父节点被删除），仅拼接其前的原作主线与无父节点主线续写
+     * - 自动隔离开同源分叉出的其他平行续写线
      */
     suspend fun getChapterLineage(bookId: String, targetChapterId: String): List<ChapterEntity> {
-        val all = chapterDao.getByBook(bookId)
-        val target = all.firstOrNull { it.id == targetChapterId } ?: return emptyList()
-        val byId = all.associateBy { it.id }
-        val branchChain = mutableListOf<ChapterEntity>()
-        var cur: ChapterEntity? = target
-        val visited = mutableSetOf<String>()
-
-        while (cur != null && cur.id !in visited) {
-            visited.add(cur.id)
-            branchChain.add(cur)
-            if (cur.originType == ChapterOriginType.ORIGINAL) {
-                val originalHead = all
-                    .filter { it.originType == ChapterOriginType.ORIGINAL && it.chapterIndex < cur.chapterIndex }
-                    .sortedBy { it.chapterIndex }
-                return originalHead + branchChain.reversed()
-            }
-            cur = cur.parentChapterId?.let { byId[it] }
-        }
-        return branchChain.reversed()
+        val all = getChapters(bookId)
+        return resolveChapterLineage(all, targetChapterId)
     }
 
-    private companion object {
-        const val COVER_TIMEOUT_MS = 20_000L
-        const val MAX_COVER_BYTES = 8 * 1024 * 1024
+    companion object {
+        private const val COVER_TIMEOUT_MS = 20_000L
+        private const val MAX_COVER_BYTES = 8 * 1024 * 1024
+
+        /**
+         * 将章节列表按树形结构展平：
+         * 原作主线章节按原序号依次推进，任何 AI 续写章及其子续写紧跟在其父章节之后，
+         * 同一父章节下的多条续写按生成时间先后顺序排列。
+         */
+        fun flattenChapterTree(list: List<ChapterEntity>): List<ChapterEntity> {
+            if (list.size <= 1) return list
+            val baseOrdered = list.sortedWith(
+                compareBy<ChapterEntity>({ it.chapterIndex }, { it.createdAt }, { it.id })
+            )
+            val byId = baseOrdered.associateBy { it.id }
+            val childrenByParent = baseOrdered
+                .filter { ch ->
+                    val pid = ch.parentChapterId
+                    pid != null && pid != ch.id && pid in byId
+                }
+                .groupBy { it.parentChapterId!! }
+                .mapValues { (_, children) ->
+                    children.sortedWith(
+                        compareBy<ChapterEntity>({ it.createdAt }, { it.chapterIndex }, { it.id })
+                    )
+                }
+
+            val result = ArrayList<ChapterEntity>(baseOrdered.size)
+            val visited = HashSet<String>(baseOrdered.size)
+
+            fun appendSubtree(node: ChapterEntity) {
+                val children = childrenByParent[node.id].orEmpty()
+                for (child in children) {
+                    if (!visited.add(child.id)) continue
+                    result.add(child)
+                    appendSubtree(child)
+                }
+            }
+
+            // 第一轮：先从真正根节点（无父节点或父节点已不存在）按主线顺序展开
+            for (ch in baseOrdered) {
+                if (ch.id in visited) continue
+                val pid = ch.parentChapterId
+                if (pid == null || pid !in byId) {
+                    visited.add(ch.id)
+                    result.add(ch)
+                    appendSubtree(ch)
+                }
+            }
+            // 兜底：若存在孤立环引用，按基线顺序补全，确保不丢任何章节且无死循环
+            for (ch in baseOrdered) {
+                if (!visited.add(ch.id)) continue
+                result.add(ch)
+                appendSubtree(ch)
+            }
+            return result
+        }
+
+        fun normalizeChaptersOrder(list: List<ChapterEntity>): List<ChapterEntity> =
+            flattenChapterTree(list).mapIndexed { index, ch ->
+                if (ch.chapterIndex == index) ch else ch.copy(chapterIndex = index)
+            }
+
+        fun resolveChapterLineage(
+            all: List<ChapterEntity>,
+            targetChapterId: String
+        ): List<ChapterEntity> {
+            val normalized = normalizeChaptersOrder(all)
+            val target = normalized.firstOrNull { it.id == targetChapterId } ?: return emptyList()
+            val byId = normalized.associateBy { it.id }
+            val chain = mutableListOf<ChapterEntity>()
+            var cur: ChapterEntity? = target
+            val visited = mutableSetOf<String>()
+
+            while (cur != null && cur.id !in visited) {
+                visited.add(cur.id)
+                chain.add(cur)
+                if (cur.originType == ChapterOriginType.ORIGINAL) {
+                    val originalHead = normalized
+                        .filter { it.originType == ChapterOriginType.ORIGINAL && it.chapterIndex < cur.chapterIndex }
+                        .sortedBy { it.chapterIndex }
+                    return (originalHead + chain.reversed()).distinctBy { it.id }
+                }
+                val nextParent = cur.parentChapterId?.let { byId[it] }
+                if (nextParent == null && cur.originType == ChapterOriginType.AI_CONTINUATION) {
+                    val earlierMainline = normalized
+                        .filter {
+                            (it.originType == ChapterOriginType.ORIGINAL || it.parentChapterId == null) &&
+                                it.chapterIndex < cur.chapterIndex
+                        }
+                        .sortedBy { it.chapterIndex }
+                    return (earlierMainline + chain.reversed()).distinctBy { it.id }
+                }
+                cur = nextParent
+            }
+            return chain.reversed().distinctBy { it.id }
+        }
     }
 }

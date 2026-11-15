@@ -37,7 +37,9 @@ class AssistantViewModel @Inject constructor(
     private val aiConfigRepository: AiConfigRepository,
     private val usageRepository: UsageRepository,
     private val aiClientFactory: AiClientFactory,
-    private val retrievalService: com.novelai.assistant.data.rag.RetrievalService
+    private val retrievalService: com.novelai.assistant.data.rag.RetrievalService,
+    private val storyMemoryService: com.novelai.assistant.data.rag.StoryMemoryService,
+    private val outlineRepository: com.novelai.assistant.data.repository.OutlineRepository
 ) : ViewModel() {
 
     val books: StateFlow<List<BookEntity>> = bookRepository.observeBooks()
@@ -191,19 +193,31 @@ class AssistantViewModel @Inject constructor(
                     .filter { it.role == "user" || it.role == "assistant" }
                     .map { ChatMessage(it.role, it.content) }
 
-                // RAG：按问题检索相关章节（不剧透模式下只召回已读部分）
+                // RAG：段落级 BM25 + 可选 Embedding 混合检索（不剧透模式下只召回已读部分）
                 val query = if (quote.isNullOrBlank()) trimmed else "$quote $trimmed"
                 val retrieved = runCatching {
-                    retrievalService.retrieve(
+                    retrievalService.retrieveSnippets(
                         bookId = bookId,
                         query = query,
-                        topK = 3,
+                        topK = 5,
                         spoilerFree = _spoilerFree.value,
                         currentChapterIndex = chapter?.chapterIndex
                     )
                 }.getOrDefault(emptyList())
-                _retrievedHint.value = retrieved.takeIf { it.isNotEmpty() }
-                    ?.joinToString("、") { it.chapter.title }
+                val visibleChapters = availableChapters.filter {
+                    it.content.isNotBlank() &&
+                        (!_spoilerFree.value || chapter == null || it.chapterIndex <= chapter.chapterIndex)
+                }
+                val chapterSummaries = runCatching {
+                    storyMemoryService.getValidSummaryMap(bookId, visibleChapters)
+                }.getOrDefault(emptyMap())
+                val outline = if (_spoilerFree.value) null else {
+                    runCatching { outlineRepository.getOutline(bookId) }.getOrNull()
+                }
+                _retrievedHint.value = retrieved.takeIf { it.isNotEmpty() }?.let { items ->
+                    val suffix = if (items.any { it.usedEmbedding }) "（语义混合）" else ""
+                    items.joinToString("、") { it.chapter.title } + suffix
+                }
 
                 val userContentToSave = QuotePromptCodec.encode(quote, trimmed)
 
@@ -223,8 +237,11 @@ class AssistantViewModel @Inject constructor(
                     history = history,
                     question = trimmed.ifBlank { "请解析上面的划线选段" },
                     quotedText = quote,
-                    retrievedChapters = retrieved.map { it.chapter },
-                    spoilerFree = _spoilerFree.value
+                    spoilerFree = _spoilerFree.value,
+                    retrievedSnippets = retrieved,
+                    recentChapters = visibleChapters,
+                    chapterSummaries = chapterSummaries,
+                    outline = outline
                 )
 
                 val builder = StringBuilder()

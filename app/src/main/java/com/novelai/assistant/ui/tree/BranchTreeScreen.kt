@@ -127,31 +127,10 @@ fun BranchTreeScreen(
         return d
     }
 
-    // 树形层级排序：主线章节依次展开，分支与衍生章节紧跟对应父节点下方
+    // 树形层级排序：主线章节依次展开，AI 续写章紧跟对应父节点下方
     val treeItems = remember(chapters) {
-        val result = mutableListOf<Pair<ChapterEntity, Int>>()
-        val processed = mutableSetOf<String>()
-
-        fun appendSubtree(parent: ChapterEntity) {
-            val children = chapters.filter { it.parentChapterId == parent.id }
-            for (child in children) {
-                if (child.id in processed) continue
-                result.add(child to depth(child))
-                processed.add(child.id)
-                appendSubtree(child)
-            }
-        }
-
-        for (ch in chapters) {
-            if (ch.id in processed) continue
-            if (ch.parentChapterId == null || byId[ch.parentChapterId] == null) {
-                result.add(ch to depth(ch))
-                processed.add(ch.id)
-                appendSubtree(ch)
-            }
-        }
-        chapters.filter { it.id !in processed }.forEach { result.add(it to depth(it)) }
-        result
+        com.novelai.assistant.data.repository.BookRepository.flattenChapterTree(chapters)
+            .map { it to depth(it) }
     }
 
     var selectedChapterId by remember { mutableStateOf<String?>(null) }
@@ -193,7 +172,7 @@ fun BranchTreeScreen(
                     )
                     Column(Modifier.weight(1f)) {
                         Text(
-                            text = "剧情分支树",
+                            text = "章节衍生图谱",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -215,7 +194,7 @@ fun BranchTreeScreen(
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
                         ) {
                             Text(
-                                text = "${chapters.size} 章 · $aiCount 衍生",
+                                text = "${chapters.size} 章 · $aiCount 续写",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -236,7 +215,7 @@ fun BranchTreeScreen(
                 EmptyState(
                     icon = Icons.AutoMirrored.Rounded.CallMerge,
                     title = "暂无章节",
-                    hint = "在阅读页使用「AI 续写」或「What-if 分支」后\n章节树会在这里生长"
+                    hint = "在阅读页使用「AI 续写」后\n章节层级关系会在这里展示"
                 )
             }
         } else if (adaptive.twoPaneEnabled) {
@@ -316,13 +295,11 @@ private fun BranchTreeList(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         itemsIndexed(treeItems, key = { _, pair -> pair.first.id }) { _, (chapter, d) ->
-            val isBranch = chapter.originType == ChapterOriginType.AI_BRANCH
             val isContinuation = chapter.originType == ChapterOriginType.AI_CONTINUATION
             val isSelected = selectedChapterId == chapter.id
 
             val nodeTint = when {
                 isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.24f else 0.14f)
-                isBranch -> NovelColors.BadgeBranch.copy(alpha = if (isDark) 0.14f else 0.08f)
                 isContinuation -> NovelColors.BadgeAi.copy(alpha = if (isDark) 0.14f else 0.08f)
                 else -> null
             }
@@ -365,7 +342,7 @@ private fun BranchTreeList(
                         Canvas(Modifier.size(width = 14.dp, height = 22.dp)) {
                             if (d > 0) {
                                 drawLine(
-                                    color = if (isBranch) NovelColors.BadgeBranch else NovelColors.BadgeAi,
+                                    color = NovelColors.BadgeAi,
                                     start = Offset(0f, size.height / 2),
                                     end = Offset(size.width - 4f, size.height / 2),
                                     strokeWidth = 3f
@@ -395,13 +372,13 @@ private fun BranchTreeList(
                         }
                         if (showQuickBranchButton) {
                             TextButton(
-                                onClick = { onContinueChapter(chapter.id, "BRANCH") },
+                                onClick = { onContinueChapter(chapter.id, "CONTINUATION") },
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = if (isBranch) "续写此分支" else "+ 分支",
+                                    text = "+ 续写",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (isBranch) NovelColors.BadgeBranch else MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -438,16 +415,14 @@ private fun BranchNodeInspectorPane(
                 EmptyState(
                     icon = Icons.AutoMirrored.Rounded.CallMerge,
                     title = "选择章节节点查看详情",
-                    hint = "点击左侧任意节点即可预览指令、摘录正文或派生新分支"
+                    hint = "点击左侧任意节点即可预览指令、摘录正文或从此章继续续写"
                 )
             }
         }
         return
     }
 
-    val isBranch = chapter.originType == ChapterOriginType.AI_BRANCH
     val originLabel = when (chapter.originType) {
-        ChapterOriginType.AI_BRANCH -> "AI 平行分支"
         ChapterOriginType.AI_CONTINUATION -> "AI 续写章节"
         ChapterOriginType.ORIGINAL -> "原作章节"
     }
@@ -510,7 +485,7 @@ private fun BranchNodeInspectorPane(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "分支来源：${parentChapter.title}",
+                            text = "续写自：${parentChapter.title}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
@@ -534,8 +509,8 @@ private fun BranchNodeInspectorPane(
                         modifier = Modifier.weight(1f)
                     )
                     GlassCapsuleButton(
-                        text = if (isBranch) "续写此分支" else "从此分支",
-                        onClick = { onContinueChapter(chapter.id, "BRANCH") },
+                        text = "从此章续写",
+                        onClick = { onContinueChapter(chapter.id, "CONTINUATION") },
                         filled = false,
                         icon = Icons.Rounded.AutoAwesome,
                         state = hazeState,

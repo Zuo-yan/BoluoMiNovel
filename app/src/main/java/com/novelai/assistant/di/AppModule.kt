@@ -6,12 +6,19 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
 import com.novelai.assistant.data.db.BookDao
+import com.novelai.assistant.data.db.BookmarkDao
 import com.novelai.assistant.data.db.CategoryDao
 import com.novelai.assistant.data.db.ChapterDao
+import com.novelai.assistant.data.db.ChapterSummaryDao
 import com.novelai.assistant.data.db.ChatDao
 import com.novelai.assistant.data.db.NovelDatabase
+import com.novelai.assistant.data.db.OutlineDao
+import com.novelai.assistant.data.db.OutlineDiscussionDao
+import com.novelai.assistant.data.db.RagVectorCacheDao
 import com.novelai.assistant.data.db.SF_MIGRATION_1_2
 import com.novelai.assistant.data.db.SF_MIGRATION_2_3
+import com.novelai.assistant.data.db.SF_MIGRATION_3_4
+import com.novelai.assistant.data.db.SF_MIGRATION_4_5
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
 import com.novelai.assistant.data.sf.KtorSfTransport
 import com.novelai.assistant.data.sf.SfApi
@@ -58,7 +65,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): NovelDatabase =
         Room.databaseBuilder(context, NovelDatabase::class.java, "novel_ai.db")
-            .addMigrations(SF_MIGRATION_1_2, SF_MIGRATION_2_3)
+            .addMigrations(SF_MIGRATION_1_2, SF_MIGRATION_2_3, SF_MIGRATION_3_4, SF_MIGRATION_4_5)
             .build()
 
     @Provides
@@ -75,6 +82,11 @@ object AppModule {
     @Provides fun provideChapterDao(db: NovelDatabase): ChapterDao = db.chapterDao()
     @Provides fun provideChatDao(db: NovelDatabase): ChatDao = db.chatDao()
     @Provides fun provideCategoryDao(db: NovelDatabase): CategoryDao = db.categoryDao()
+    @Provides fun provideOutlineDao(db: NovelDatabase): OutlineDao = db.outlineDao()
+    @Provides fun provideOutlineDiscussionDao(db: NovelDatabase): OutlineDiscussionDao = db.outlineDiscussionDao()
+    @Provides fun provideChapterSummaryDao(db: NovelDatabase): ChapterSummaryDao = db.chapterSummaryDao()
+    @Provides fun provideRagVectorCacheDao(db: NovelDatabase): RagVectorCacheDao = db.ragVectorCacheDao()
+    @Provides fun provideBookmarkDao(db: NovelDatabase): BookmarkDao = db.bookmarkDao()
 
     @Provides
     @Singleton

@@ -12,7 +12,10 @@ interface AiChatClient {
     suspend fun ping(config: ApiProviderConfig): Result<Long>
 
     /** 拉取可用模型列表 */
-    suspend fun listModels(config: ApiProviderConfig): Result<List<String>>
+    suspend fun listModels(
+        config: ApiProviderConfig,
+        purpose: ModelListPurpose = ModelListPurpose.CHAT
+    ): Result<List<String>>
 
     /** 流式对话 */
     fun streamChat(

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelai.assistant.data.db.BookEntity
 import com.novelai.assistant.data.db.BookSourceType
+import com.novelai.assistant.data.db.BookmarkEntity
 import com.novelai.assistant.data.db.ChapterEntity
 import com.novelai.assistant.data.prefs.AppThemeMode
 import com.novelai.assistant.data.prefs.PageMode
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 typealias TtsTimerMode = com.novelai.assistant.data.tts.TtsTimerMode
@@ -66,16 +68,22 @@ class ReaderViewModel @Inject constructor(
     val chapters: StateFlow<List<ChapterEntity>> = bookRepository.observeChapters(bookId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val bookmarks: StateFlow<List<BookmarkEntity>> = bookRepository.observeBookmarks(bookId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val settings: StateFlow<ReadingSettings> = readingPreferencesRepository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReadingSettings())
 
     // 初始定位到上次阅读章节
     private val _chapterIndex = MutableStateFlow(-1)
     val chapterIndex: StateFlow<Int> = _chapterIndex.asStateFlow()
+    private var lastViewedChapterId: String? = null
 
     val currentChapter: StateFlow<ChapterEntity?> =
         combine(chapters, _chapterIndex) { list, idx ->
-            if (idx in list.indices) list[idx] else null
+            val resolved = if (idx in list.indices) list[idx] else null
+            if (resolved != null) lastViewedChapterId = resolved.id
+            resolved
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // UI 开关
@@ -90,6 +98,12 @@ class ReaderViewModel @Inject constructor(
 
     private val _tocFilter = MutableStateFlow(TocFilter.ALL)
     val tocFilter: StateFlow<TocFilter> = _tocFilter.asStateFlow()
+
+    private val _tocDrawerTab = MutableStateFlow(ReaderDrawerTab.TOC)
+    val tocDrawerTab: StateFlow<ReaderDrawerTab> = _tocDrawerTab.asStateFlow()
+
+    private val _bookmarkJumpSeq = MutableStateFlow(0L)
+    val bookmarkJumpSeq: StateFlow<Long> = _bookmarkJumpSeq.asStateFlow()
 
     // 划线即问 / 选段朗读
     private val _quotedText = MutableStateFlow<String?>(null)
@@ -192,6 +206,13 @@ class ReaderViewModel @Inject constructor(
         }
 
         chapters.onEach { list ->
+            val viewedId = lastViewedChapterId
+            if (viewedId != null && list.isNotEmpty()) {
+                val relocated = list.indexOfFirst { it.id == viewedId }
+                if (relocated >= 0 && relocated != _chapterIndex.value) {
+                    _chapterIndex.value = relocated
+                }
+            }
             if (list.isNotEmpty() && canBindTts()) {
                 val bTitle = book.value?.title ?: ""
                 ttsPlayer.bindBookContext(bookId, bTitle, list)
@@ -405,12 +426,83 @@ class ReaderViewModel @Inject constructor(
 
     fun toggleChrome() { _chromeVisible.value = !_chromeVisible.value }
 
-    fun openToc() { _tocOpen.value = true; _chromeVisible.value = false }
+    fun openToc(initialTab: ReaderDrawerTab = ReaderDrawerTab.TOC) {
+        _tocDrawerTab.value = initialTab
+        _tocOpen.value = true
+        _chromeVisible.value = false
+    }
     fun closeToc() { _tocOpen.value = false }
+    fun setTocDrawerTab(tab: ReaderDrawerTab) { _tocDrawerTab.value = tab }
     fun openSettings() { _settingsOpen.value = true }
     fun closeSettings() { _settingsOpen.value = false }
 
     fun setTocFilter(filter: TocFilter) { _tocFilter.value = filter }
+
+    fun toggleBookmarkAt(anchor: ReadingAnchor) {
+        val chapter = currentChapter.value ?: return
+        val existing = ReaderBookmarkHelper.findMatchingBookmark(
+            bookmarks = bookmarks.value,
+            chapterId = chapter.id,
+            paragraphIndex = anchor.paragraph
+        )
+        viewModelScope.launch {
+            if (existing != null) {
+                bookRepository.deleteBookmark(existing.id)
+                _exportMessage.value = "已移除书签"
+            } else {
+                val excerpt = ReaderBookmarkHelper.extractExcerpt(
+                    content = chapter.content,
+                    paragraphIndex = anchor.paragraph,
+                    charOffset = anchor.character
+                )
+                bookRepository.addBookmark(
+                    BookmarkEntity(
+                        id = UUID.randomUUID().toString(),
+                        bookId = bookId,
+                        chapterId = chapter.id,
+                        chapterIndex = chapter.chapterIndex,
+                        chapterTitle = chapter.title,
+                        paragraphIndex = anchor.paragraph,
+                        charOffset = anchor.character,
+                        scrollOffset = anchor.scroll,
+                        excerpt = excerpt
+                    )
+                )
+                _exportMessage.value = "已添加书签"
+            }
+        }
+    }
+
+    fun deleteBookmark(bookmarkId: String) {
+        viewModelScope.launch {
+            bookRepository.deleteBookmark(bookmarkId)
+            _exportMessage.value = "已移除书签"
+        }
+    }
+
+    fun jumpToBookmark(bookmark: BookmarkEntity) {
+        val list = chapters.value
+        val targetIdx = ReaderBookmarkHelper.resolveBookmarkTargetIndex(list, bookmark)
+        if (targetIdx !in list.indices) return
+        val targetChapter = list[targetIdx]
+        val targetAnchor = ReadingAnchor(
+            paragraph = bookmark.paragraphIndex,
+            character = bookmark.charOffset,
+            scroll = bookmark.scrollOffset
+        )
+        _targetPageOnChapterLoad.value = null
+        readingPreferencesRepository.saveChapterAnchor(
+            bookId = bookId,
+            chapterId = targetChapter.id,
+            chapterIndex = targetChapter.chapterIndex,
+            anchor = targetAnchor
+        )
+        if (targetIdx != _chapterIndex.value) {
+            setChapterIndex(targetIdx)
+        }
+        _bookmarkJumpSeq.value++
+        _tocOpen.value = false
+    }
 
     fun renameChapter(chapterId: String, newTitle: String) {
         val trimmed = newTitle.trim()

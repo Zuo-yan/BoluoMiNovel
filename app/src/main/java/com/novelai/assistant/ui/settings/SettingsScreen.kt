@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -108,12 +109,18 @@ import com.novelai.assistant.ui.theme.NovelColors
 @Composable
 fun SettingsScreen(
     onEditProvider: (String) -> Unit,
+    onOpenTaskRouting: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val adaptive = LocalAdaptiveMetrics.current
     val providers by viewModel.providers.collectAsStateWithLifecycle()
+    val outlineRoute by viewModel.outlineRoute.collectAsStateWithLifecycle()
     val continuationRoute by viewModel.continuationRoute.collectAsStateWithLifecycle()
     val companionRoute by viewModel.companionRoute.collectAsStateWithLifecycle()
+    val embeddingRoute by viewModel.embeddingRoute.collectAsStateWithLifecycle()
+    val ttsRoute by viewModel.ttsRoute.collectAsStateWithLifecycle()
+    val embeddingTestState by viewModel.embeddingTestState.collectAsStateWithLifecycle()
+    val ttsTestState by viewModel.ttsTestState.collectAsStateWithLifecycle()
     val usage by viewModel.usage.collectAsStateWithLifecycle()
     val appTheme by viewModel.appThemeMode.collectAsStateWithLifecycle()
     val routeModels by viewModel.routeModels.collectAsStateWithLifecycle()
@@ -125,6 +132,7 @@ fun SettingsScreen(
 
     // 双栏平板模式下右侧详情当前选中的提供商（null 表示展示液态玻璃与分流概览）
     var selectedProviderId by remember { mutableStateOf<String?>(null) }
+    var showTaskRoutingInline by remember { mutableStateOf(false) }
     var editNonce by remember { mutableIntStateOf(0) }
 
     val screenContext = LocalContext.current
@@ -144,10 +152,20 @@ fun SettingsScreen(
 
     val openProvider: (String) -> Unit = { id ->
         if (adaptive.twoPaneEnabled) {
+            showTaskRoutingInline = false
             selectedProviderId = id
             editNonce++
         } else {
             onEditProvider(id)
+        }
+    }
+
+    val openTaskRouting: () -> Unit = {
+        if (adaptive.twoPaneEnabled) {
+            selectedProviderId = null
+            showTaskRoutingInline = true
+        } else {
+            onOpenTaskRouting()
         }
     }
 
@@ -171,16 +189,20 @@ fun SettingsScreen(
                     primaryPane = {
                         SettingsListPane(
                             providers = providers,
+                            outlineRoute = outlineRoute,
                             continuationRoute = continuationRoute,
                             companionRoute = companionRoute,
+                            embeddingRoute = embeddingRoute,
+                            ttsRoute = ttsRoute,
                             usage = usage,
                             appTheme = appTheme,
                             isIgnoringBattery = isIgnoringBattery,
                             selectedProviderId = selectedProviderId,
+                            taskRoutingSelected = showTaskRoutingInline,
                             onSelectProvider = openProvider,
                             onToggleEnabled = { cfg, enabled -> viewModel.toggleEnabled(cfg, enabled) },
                             onSetDefaultProvider = { cfg -> viewModel.setDefaultProvider(cfg) },
-                            onOpenRoute = { scene -> routeScene = scene },
+                            onOpenTaskRouting = openTaskRouting,
                             onRequestResetUsage = { confirmResetUsage = true },
                             onSetAppTheme = { mode -> viewModel.setAppTheme(mode) },
                             onRequestBatteryWhitelist = {
@@ -191,7 +213,7 @@ fun SettingsScreen(
                     },
                     secondaryPane = {
                         AnimatedContent(
-                            targetState = selectedProviderId to editNonce,
+                            targetState = Triple(selectedProviderId, showTaskRoutingInline, editNonce),
                             transitionSpec = {
                                 (fadeIn(androidx.compose.animation.core.tween(210, easing = NovelMotion.fluidDecelerate)) +
                                     scaleIn(initialScale = 0.985f, animationSpec = NovelMotion.spatialSpring())) togetherWith
@@ -199,28 +221,43 @@ fun SettingsScreen(
                                         scaleOut(targetScale = 0.99f))
                             },
                             label = "settingsSecondaryPane"
-                        ) { (activeId, _) ->
-                            if (activeId != null) {
-                                ProviderEditContent(
-                                    providerId = activeId,
-                                    onSaved = { savedId -> selectedProviderId = savedId },
-                                    onDeleted = { selectedProviderId = null },
-                                    showInlineHeader = true,
-                                    onCloseInline = { selectedProviderId = null },
-                                    loadForceKey = editNonce,
-                                    contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
-                                )
-                            } else {
-                                SettingsOverviewDetailPane(
-                                    providers = providers,
-                                    continuationRoute = continuationRoute,
-                                    companionRoute = companionRoute,
-                                    appTheme = appTheme,
-                                    onAddProvider = { openProvider("new") },
-                                    onSelectProvider = openProvider,
-                                    onConfigureRoute = { routeScene = it },
-                                    contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
-                                )
+                        ) { (activeId, routingInline, _) ->
+                            when {
+                                activeId != null -> {
+                                    ProviderEditContent(
+                                        providerId = activeId,
+                                        onSaved = { savedId -> selectedProviderId = savedId },
+                                        onDeleted = { selectedProviderId = null },
+                                        showInlineHeader = true,
+                                        onCloseInline = { selectedProviderId = null },
+                                        loadForceKey = editNonce,
+                                        contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
+                                    )
+                                }
+                                routingInline -> {
+                                    TaskRoutingContent(
+                                        viewModel = viewModel,
+                                        showInlineHeader = true,
+                                        onCloseInline = { showTaskRoutingInline = false },
+                                        contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
+                                    )
+                                }
+                                else -> {
+                                    SettingsOverviewDetailPane(
+                                        providers = providers,
+                                        outlineRoute = outlineRoute,
+                                        continuationRoute = continuationRoute,
+                                        companionRoute = companionRoute,
+                                        embeddingRoute = embeddingRoute,
+                                        ttsRoute = ttsRoute,
+                                        appTheme = appTheme,
+                                        onAddProvider = { openProvider("new") },
+                                        onSelectProvider = openProvider,
+                                        onConfigureRoute = { routeScene = it },
+                                        onOpenTaskRouting = openTaskRouting,
+                                        contentPadding = PaddingValues(top = 8.dp, bottom = bottomBarContentPadding(24.dp))
+                                    )
+                                }
                             }
                         }
                     }
@@ -232,16 +269,20 @@ fun SettingsScreen(
                 ) {
                     SettingsListPane(
                         providers = providers,
+                        outlineRoute = outlineRoute,
                         continuationRoute = continuationRoute,
                         companionRoute = companionRoute,
+                        embeddingRoute = embeddingRoute,
+                        ttsRoute = ttsRoute,
                         usage = usage,
                         appTheme = appTheme,
                         isIgnoringBattery = isIgnoringBattery,
                         selectedProviderId = null,
+                        taskRoutingSelected = false,
                         onSelectProvider = openProvider,
                         onToggleEnabled = { cfg, enabled -> viewModel.toggleEnabled(cfg, enabled) },
                         onSetDefaultProvider = { cfg -> viewModel.setDefaultProvider(cfg) },
-                        onOpenRoute = { scene -> routeScene = scene },
+                        onOpenTaskRouting = openTaskRouting,
                         onRequestResetUsage = { confirmResetUsage = true },
                         onSetAppTheme = { mode -> viewModel.setAppTheme(mode) },
                         onRequestBatteryWhitelist = {
@@ -290,23 +331,47 @@ fun SettingsScreen(
     }
 
     routeScene?.let { scene ->
+        val currentRoute = when (scene) {
+            TaskScene.OUTLINE -> outlineRoute
+            TaskScene.CONTINUATION -> continuationRoute
+            TaskScene.COMPANION -> companionRoute
+            TaskScene.EMBEDDING -> embeddingRoute
+            TaskScene.TTS -> ttsRoute
+        }
         RouteEditDialog(
             scene = scene,
             providers = providers,
-            current = if (scene == TaskScene.CONTINUATION) continuationRoute else companionRoute,
+            current = currentRoute,
             routeModels = routeModels,
             loadingModels = loadingRouteModels,
             routeModelError = routeModelError,
-            onGetRecommendedModels = { viewModel.getRecommendedModels(it) },
-            onFetchModels = { viewModel.fetchModelsFor(it) },
+            embeddingTestState = embeddingTestState,
+            ttsTestState = ttsTestState,
+            onGetRecommendedModels = { viewModel.getRecommendedModels(it, scene) },
+            onFetchModels = { viewModel.fetchModelsFor(it, scene) },
             onClearModels = { viewModel.clearRouteModels() },
+            onTestEmbedding = { pid, m -> viewModel.testEmbedding(pid, m) },
+            onClearEmbeddingTest = { viewModel.clearEmbeddingTest() },
+            onTestTts = { pid, m -> viewModel.testTts(pid, m) },
+            onClearTtsTest = { viewModel.clearTtsTest() },
+            onClearRoute = {
+                viewModel.clearRoute(scene)
+                viewModel.clearRouteModels()
+                viewModel.clearEmbeddingTest()
+                viewModel.clearTtsTest()
+                routeScene = null
+            },
             onDismiss = {
                 viewModel.clearRouteModels()
+                viewModel.clearEmbeddingTest()
+                viewModel.clearTtsTest()
                 routeScene = null
             },
             onSave = { providerId, model ->
                 viewModel.saveRoute(scene, providerId, model)
                 viewModel.clearRouteModels()
+                viewModel.clearEmbeddingTest()
+                viewModel.clearTtsTest()
                 routeScene = null
             }
         )
@@ -317,16 +382,20 @@ fun SettingsScreen(
 @Composable
 private fun SettingsListPane(
     providers: List<ApiProviderConfig>,
+    outlineRoute: ModelRoute,
     continuationRoute: ModelRoute,
     companionRoute: ModelRoute,
+    embeddingRoute: ModelRoute,
+    ttsRoute: ModelRoute,
     usage: TokenUsage,
     appTheme: AppThemeMode,
     isIgnoringBattery: Boolean,
     selectedProviderId: String?,
+    taskRoutingSelected: Boolean,
     onSelectProvider: (String) -> Unit,
     onToggleEnabled: (ApiProviderConfig, Boolean) -> Unit,
     onSetDefaultProvider: (ApiProviderConfig) -> Unit,
-    onOpenRoute: (TaskScene) -> Unit,
+    onOpenTaskRouting: () -> Unit,
     onRequestResetUsage: () -> Unit,
     onSetAppTheme: (AppThemeMode) -> Unit,
     onRequestBatteryWhitelist: () -> Unit,
@@ -441,44 +510,66 @@ private fun SettingsListPane(
         }
 
         GlassSectionCard(
-            title = "任务分流",
-            footer = "为不同任务指定不同模型，兼顾成本与效果"
+            title = "模型分流",
+            footer = "独立管理「大纲」「续写」「伴读」「向量重排」与「AI 语音合成」五项场景模型"
         ) {
+            val outlineProvider = providers.firstOrNull { it.id == outlineRoute.providerId && it.isEnabled }
             val contProvider = providers.firstOrNull { it.id == continuationRoute.providerId }
-            val compProvider = providers.firstOrNull { it.id == companionRoute.providerId }
+            val embProvider = providers.firstOrNull { it.id == embeddingRoute.providerId && it.isEnabled }
+            val ttsProvider = providers.firstOrNull { it.id == ttsRoute.providerId && it.isEnabled }
+
+            val activeBadges = buildList {
+                val mainModel = continuationRoute.model.ifBlank { contProvider?.selectedModel.orEmpty() }
+                if (mainModel.isNotBlank()) add("主模型 $mainModel")
+                if (outlineProvider != null) add("大纲独立")
+                if (embProvider != null && embeddingRoute.model.isNotBlank()) add("向量已启")
+                if (ttsProvider != null && ttsRoute.model.isNotBlank()) add("AI 语音已启")
+            }
+            val summaryText = if (activeBadges.isEmpty()) {
+                "为大纲、续写、伴读、向量与听书语音分配专用模型"
+            } else {
+                activeBadges.joinToString(" · ")
+            }
+            val routingRowBg = if (taskRoutingSelected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.20f else 0.12f)
+            } else {
+                Color.Transparent
+            }
             SettingRow(
-                title = "续写场景",
-                subtitle = TaskScene.CONTINUATION.hint,
-                icon = Icons.Rounded.SwapHoriz,
-                onClick = { onOpenRoute(TaskScene.CONTINUATION) },
+                title = "AI 模型任务分流",
+                subtitle = summaryText,
+                icon = Icons.Rounded.Tune,
+                tint = if (taskRoutingSelected) MaterialTheme.colorScheme.primary else NovelColors.Indigo,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(routingRowBg)
+                    .then(
+                        if (taskRoutingSelected) {
+                            Modifier.border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        } else {
+                            Modifier
+                        }
+                    ),
+                onClick = onOpenTaskRouting,
                 trailing = {
-                    Text(
-                        continuationRoute.model.ifBlank { contProvider?.selectedModel ?: "未配置" },
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            )
-            HorizontalDivider(
-                Modifier.padding(start = 52.dp),
-                thickness = 0.5.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
-            SettingRow(
-                title = "速览与伴读场景",
-                subtitle = TaskScene.COMPANION.hint,
-                icon = Icons.AutoMirrored.Rounded.Chat,
-                onClick = { onOpenRoute(TaskScene.COMPANION) },
-                trailing = {
-                    Text(
-                        companionRoute.model.ifBlank { compProvider?.selectedModel ?: "未配置" },
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "5 项",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            Icons.Rounded.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             )
         }
@@ -634,19 +725,26 @@ private fun SettingsListPane(
 @Composable
 private fun SettingsOverviewDetailPane(
     providers: List<ApiProviderConfig>,
+    outlineRoute: ModelRoute,
     continuationRoute: ModelRoute,
     companionRoute: ModelRoute,
+    embeddingRoute: ModelRoute,
+    ttsRoute: ModelRoute,
     appTheme: AppThemeMode,
     onAddProvider: () -> Unit,
     onSelectProvider: (String) -> Unit,
     onConfigureRoute: (TaskScene) -> Unit,
+    onOpenTaskRouting: () -> Unit,
     contentPadding: PaddingValues
 ) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val activeText = if (isDark) NovelColors.GlassOnDarkText else NovelColors.GlassOnLightText
     val enabledCount = providers.count { it.isEnabled }
+    val outlineProvider = providers.firstOrNull { it.id == outlineRoute.providerId && it.isEnabled }
     val contProvider = providers.firstOrNull { it.id == continuationRoute.providerId }
     val compProvider = providers.firstOrNull { it.id == companionRoute.providerId }
+    val embProvider = providers.firstOrNull { it.id == embeddingRoute.providerId && it.isEnabled }
+    val ttsProvider = providers.firstOrNull { it.id == ttsRoute.providerId && it.isEnabled }
 
     Column(
         modifier = Modifier
@@ -694,6 +792,12 @@ private fun SettingsOverviewDetailPane(
                             icon = Icons.Rounded.Tune
                         )
                     }
+                    GlassCapsuleButton(
+                        text = "任务分流",
+                        onClick = onOpenTaskRouting,
+                        filled = false,
+                        icon = Icons.Rounded.SwapHoriz
+                    )
                 }
             }
         }
@@ -701,7 +805,7 @@ private fun SettingsOverviewDetailPane(
         // AI 任务分流状态卡
         GlassSectionCard(
             title = "AI 任务分流概览",
-            footer = "为长篇续写与伴读解析分别指派最合适的模型，支持点击右侧按钮即时切换",
+            footer = "大纲策划可单独指派推理更强的高阶模型；正文续写与伴读归档各司其职，点击右侧即时切换",
             contentPadding = PaddingValues(18.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -711,7 +815,33 @@ private fun SettingsOverviewDetailPane(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("续写与剧情分支", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(TaskScene.OUTLINE.label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            text = if (outlineProvider != null) {
+                                "${outlineProvider.providerName} · ${outlineRoute.model.ifBlank { outlineProvider.selectedModel }}"
+                            } else {
+                                "跟随续写（${contProvider?.providerName ?: "未指派服务"} · ${continuationRoute.model.ifBlank { contProvider?.selectedModel ?: "未选模型" }}）"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    GlassCapsuleButton(
+                        text = "配置模型",
+                        onClick = { onConfigureRoute(TaskScene.OUTLINE) },
+                        filled = false
+                    )
+                }
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("AI 续写与创作", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                         Text(
                             text = "${contProvider?.providerName ?: "未指派服务"} · ${continuationRoute.model.ifBlank { contProvider?.selectedModel ?: "未选模型" }}",
                             style = MaterialTheme.typography.bodySmall,
@@ -748,6 +878,58 @@ private fun SettingsOverviewDetailPane(
                         filled = false
                     )
                 }
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(TaskScene.EMBEDDING.label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            text = if (embProvider != null && embeddingRoute.model.isNotBlank()) {
+                                "${embProvider.providerName} · ${embeddingRoute.model}（已开启语义混合召回）"
+                            } else {
+                                "未启用（默认使用本地段落级 BM25 检索）"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    GlassCapsuleButton(
+                        text = "配置模型",
+                        onClick = { onConfigureRoute(TaskScene.EMBEDDING) },
+                        filled = false
+                    )
+                }
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(TaskScene.TTS.label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            text = if (ttsProvider != null && ttsRoute.model.isNotBlank()) {
+                                "${ttsProvider.providerName} · ${ttsRoute.model}（已接入 AI 听书语音）"
+                            } else {
+                                "未启用（默认使用设备系统语音）"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    GlassCapsuleButton(
+                        text = "配置模型",
+                        onClick = { onConfigureRoute(TaskScene.TTS) },
+                        filled = false
+                    )
+                }
             }
         }
 
@@ -773,180 +955,6 @@ private fun SettingsOverviewDetailPane(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun RouteEditDialog(
-    scene: TaskScene,
-    providers: List<ApiProviderConfig>,
-    current: ModelRoute,
-    routeModels: List<String>,
-    loadingModels: Boolean,
-    routeModelError: String?,
-    onGetRecommendedModels: (String) -> List<String>,
-    onFetchModels: (String) -> Unit,
-    onClearModels: () -> Unit,
-    onDismiss: () -> Unit,
-    onSave: (String, String) -> Unit
-) {
-    val adaptive = LocalAdaptiveMetrics.current
-    var providerId by remember(scene, current.providerId) {
-        mutableStateOf(current.providerId ?: providers.firstOrNull()?.id ?: "")
-    }
-    val selectedProvider = providers.firstOrNull { it.id == providerId }
-    var model by remember(scene, current.providerId) {
-        mutableStateOf(current.model.ifBlank { selectedProvider?.selectedModel ?: "" })
-    }
-    var filterText by remember(scene, current.providerId) { mutableStateOf("") }
-    val recs = remember(providerId) { onGetRecommendedModels(providerId) }
-
-    AdaptiveGlassDialog(
-        onDismissRequest = onDismiss,
-        maxWidth = adaptive.maxDialogSheetWidth
-    ) {
-        Text(
-            "配置${scene.label}模型",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(Modifier.height(12.dp))
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            if (providers.isEmpty()) {
-                Text("请先在「模型与 API」中添加并启用提供商", color = MaterialTheme.colorScheme.error)
-            }
-
-            Text("选择服务商 / API Key", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                providers.forEach { p ->
-                    FilterChip(
-                        selected = p.id == providerId,
-                        onClick = {
-                            providerId = p.id
-                            onClearModels()
-                            filterText = ""
-                            if (p.selectedModel.isNotBlank()) model = p.selectedModel
-                        },
-                        label = { Text(p.providerName) }
-                    )
-                }
-            }
-
-            if (recs.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("推荐模型：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                    ) {
-                        recs.forEach { candidate ->
-                            AssistChip(
-                                onClick = { model = candidate },
-                                label = { Text(candidate, style = MaterialTheme.typography.labelSmall) },
-                                colors = if (model == candidate) {
-                                    AssistChipDefaults.assistChipColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                } else {
-                                    AssistChipDefaults.assistChipColors()
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = model,
-                onValueChange = { model = it },
-                label = { Text("当前模型 ID") },
-                singleLine = true,
-                trailingIcon = {
-                    if (loadingModels) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        TextButton(onClick = { onFetchModels(providerId) }) { Text("拉取模型") }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            if (routeModelError != null) {
-                Text(
-                    routeModelError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-
-            if (routeModels.isNotEmpty()) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 200.dp)
-                ) {
-                    OutlinedTextField(
-                        value = filterText,
-                        onValueChange = { filterText = it },
-                        placeholder = { Text("搜索拉取的 ${routeModels.size} 个模型…") },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 6.dp)
-                    )
-                    val filtered = remember(routeModels, filterText) {
-                        if (filterText.isBlank()) routeModels
-                        else routeModels.filter { it.contains(filterText, ignoreCase = true) }
-                    }
-                    LazyColumn(Modifier.fillMaxWidth()) {
-                        items(filtered, key = { it }) { m ->
-                            val isSelected = model == m
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { model = m },
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
-                                shape = MaterialTheme.shapes.small
-                            ) {
-                                Text(
-                                    text = m,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onDismiss) { Text("取消") }
-            Spacer(Modifier.width(8.dp))
-            GlassCapsuleButton(
-                text = "保存配置",
-                onClick = { onSave(providerId, model) },
-                enabled = providerId.isNotBlank() && model.isNotBlank()
-            )
         }
     }
 }

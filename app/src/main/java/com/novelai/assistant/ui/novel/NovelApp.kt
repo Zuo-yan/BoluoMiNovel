@@ -55,6 +55,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.novelai.assistant.data.generation.GenerationNavBus
 import com.novelai.assistant.data.tts.ListeningNavBus
 import com.novelai.assistant.ui.assistant.AssistantScreen
 import com.novelai.assistant.ui.assistant.ReaderCompanionScreen
@@ -78,6 +79,7 @@ import com.novelai.assistant.ui.listening.ListeningScreen
 import com.novelai.assistant.ui.reader.ReaderScreen
 import com.novelai.assistant.ui.settings.ProviderEditScreen
 import com.novelai.assistant.ui.settings.SettingsScreen
+import com.novelai.assistant.ui.settings.TaskRoutingScreen
 import com.novelai.assistant.ui.tree.BranchTreeScreen
 
 object Routes {
@@ -100,6 +102,7 @@ object Routes {
     const val GENERATE = "generate/{bookId}/{chapterId}?mode={mode}"
     const val TREE = "tree/{bookId}"
     const val PROVIDER_EDIT = "provider_edit/{providerId}"
+    const val TASK_ROUTING = "task_routing"
     const val READER_COMPANION = "reader_companion/{bookId}?quote={quote}&action={action}"
 
     fun listening() = "listening"
@@ -114,10 +117,11 @@ object Routes {
     fun sfRelatedLists(bookId: String) = "sf_related_lists/$bookId"
     fun sfAuthor(bookId: String, name: String) =
         "sf_author/$bookId?name=${Uri.encode(name)}"
-    fun generate(bookId: String, chapterId: String, mode: String) =
+    fun generate(bookId: String, chapterId: String, mode: String = "CONTINUATION") =
         "generate/$bookId/$chapterId?mode=$mode"
     fun tree(bookId: String) = "tree/$bookId"
     fun providerEdit(providerId: String) = "provider_edit/$providerId"
+    fun taskRouting() = "task_routing"
     fun readerCompanion(bookId: String, quote: String, action: String = ""): String {
         val q = Uri.encode(quote)
         val a = Uri.encode(action)
@@ -143,9 +147,13 @@ private fun isTopLevelRoute(route: String?): Boolean =
     route != null && route in topLevelRoutes
 
 @Composable
-fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
+fun NovelApp(
+    listeningNavBus: ListeningNavBus? = null,
+    generationNavBus: GenerationNavBus? = null
+) {
     val appViewModel: AppViewModel = hiltViewModel()
     val navBus = listeningNavBus ?: appViewModel.listeningNavBus
+    val genNavBus = generationNavBus ?: appViewModel.generationNavBus
     val onboardingDone by appViewModel.onboardingDone.collectAsStateWithLifecycle()
 
     // 引导标记加载中：显示底色占位，避免闪烁
@@ -175,10 +183,17 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
         .indexOfFirst { currentRoute?.startsWith(it.route) == true }
         .coerceAtLeast(0)
 
-    // 监听通知栏卡片点击事件：跳转到专门听书模块
+    // 监听通知栏卡片点击事件：跳转到专门听书模块或 AI 生成工作台
     LaunchedEffect(navBus) {
         navBus.openListening.collect {
             navController.navigate(Routes.LISTENING) {
+                launchSingleTop = true
+            }
+        }
+    }
+    LaunchedEffect(genNavBus) {
+        genNavBus.openGeneration.collect { target ->
+            navController.navigate(Routes.generate(target.bookId, target.chapterId, target.mode)) {
                 launchSingleTop = true
             }
         }
@@ -189,17 +204,26 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
     val currentSpeakingBookId by appViewModel.ttsBookId.collectAsStateWithLifecycle()
     val ttsBookTitle by appViewModel.ttsBookTitle.collectAsStateWithLifecycle()
     val ttsChapterTitle by appViewModel.ttsChapterTitle.collectAsStateWithLifecycle()
+    val generationState by appViewModel.generationState.collectAsStateWithLifecycle()
     val listenPillPosition by appViewModel.listenPillPosition.collectAsStateWithLifecycle()
 
-    val currentReaderBookId = backStackEntry?.arguments?.getString("bookId")
+    val currentArgBookId = backStackEntry?.arguments?.getString("bookId")
     val isReadingCurrentTtsBook = currentRoute?.startsWith("reader") == true &&
         currentSpeakingBookId.isNotBlank() &&
-        currentReaderBookId == currentSpeakingBookId
+        currentArgBookId == currentSpeakingBookId
+    val isViewingCurrentGenScreen = currentRoute?.startsWith("generate") == true &&
+        generationState != null &&
+        currentArgBookId == generationState?.bookId
+
+    val showTtsInCapsule = (ttsSpeaking || ttsPaused) &&
+        !isReadingCurrentTtsBook &&
+        currentRoute != Routes.LISTENING
+    val showGenInCapsule = generationState?.hasDisplayableState == true &&
+        !isViewingCurrentGenScreen
 
     val showCapsule = currentRoute != null &&
-        !isReadingCurrentTtsBook &&
-        currentRoute != Routes.LISTENING &&
-        currentRoute != Routes.ONBOARDING
+        currentRoute != Routes.ONBOARDING &&
+        (showTtsInCapsule || showGenInCapsule)
 
     CompositionLocalProvider(LocalGlassHazeState provides hazeState) {
         Box(
@@ -331,7 +355,13 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                         }
                         composable(Routes.SETTINGS) {
                             SettingsScreen(
-                                onEditProvider = { navController.navigate(Routes.providerEdit(it)) }
+                                onEditProvider = { navController.navigate(Routes.providerEdit(it)) },
+                                onOpenTaskRouting = { navController.navigate(Routes.taskRouting()) }
+                            )
+                        }
+                        composable(Routes.TASK_ROUTING) {
+                            TaskRoutingScreen(
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable(Routes.LISTENING) {
@@ -339,6 +369,9 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                                 onBack = { navController.popBackStack() },
                                 onOpenReader = { bookId, chapterIndex ->
                                     navController.navigate(Routes.readerAt(bookId, chapterIndex))
+                                },
+                                onOpenTtsRouting = {
+                                    navController.navigate(Routes.taskRouting())
                                 }
                             )
                         }
@@ -458,10 +491,12 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
 
             if (showCapsule) {
                 ListeningFloatingCapsule(
-                    isVisible = ttsSpeaking || ttsPaused,
+                    isVisible = showTtsInCapsule || showGenInCapsule,
+                    showTts = showTtsInCapsule,
                     paused = ttsPaused,
                     bookTitle = ttsBookTitle,
                     chapterTitle = ttsChapterTitle,
+                    generationState = if (showGenInCapsule) generationState else null,
                     positionFrac = listenPillPosition,
                     onTogglePlayPause = appViewModel::toggleTtsPlayPause,
                     onSavePosition = appViewModel::saveListenPillPosition,
@@ -470,6 +505,15 @@ fun NovelApp(listeningNavBus: ListeningNavBus? = null) {
                             launchSingleTop = true
                         }
                     },
+                    onOpenGeneration = { target ->
+                        navController.navigate(
+                            Routes.generate(target.bookId, target.parentChapterId)
+                        ) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onStopGeneration = appViewModel::stopBackgroundGeneration,
+                    onDismissGeneration = appViewModel::dismissBackgroundGeneration,
                     hazeState = hazeState,
                     railVisible = showNavRail,
                     bottomDockVisible = showBottomBar

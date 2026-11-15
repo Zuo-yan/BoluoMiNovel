@@ -1,6 +1,8 @@
 package com.novelai.assistant.ui.reader
 
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +48,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -153,7 +156,8 @@ internal fun PagedContent(
     hasNextChapter: Boolean,
     hasPrevChapter: Boolean,
     selectionMode: Boolean,
-    targetPageProvider: () -> Int?
+    targetPageProvider: () -> Int?,
+    anchorVersion: Long = 0L
 ) {
     val context = LocalContext.current
     val textMeasurer = rememberTextMeasurer()
@@ -213,7 +217,8 @@ internal fun PagedContent(
         val pagerState = rememberPagerState(pageCount = { pagerCount })
 
         var positionReady by remember(chapterId, pages, isDualPage) { mutableStateOf(false) }
-        LaunchedEffect(chapterId, pages, isDualPage) {
+        LaunchedEffect(chapterId, pages, isDualPage, anchorVersion) {
+            positionReady = false
             val anchor = readPosition()
             val target = targetPageProvider()
             if (target == -1) {
@@ -498,20 +503,26 @@ internal fun PagedContent(
                 }
             }
 
-            // 页码指示（双栏显示页码范围，例如 1-2 / 14）
+            // 页码指示（控制栏展开时淡出，避免与底部控制胶囊重叠；双栏显示页码范围）
             val activeLeftIndex = if (isDualPage) pagerState.currentPage * 2 else pagerState.currentPage
             val pageIndicator = if (isDualPage && activeLeftIndex + 1 < pages.size) {
                 "${activeLeftIndex + 1}-${activeLeftIndex + 2} / ${pages.size}"
             } else {
                 "${(activeLeftIndex + 1).coerceAtMost(pages.size)} / ${pages.size}"
             }
+            val indicatorAlpha by animateFloatAsState(
+                targetValue = if (chromeVisible) 0f else 1f,
+                animationSpec = tween(durationMillis = 160),
+                label = "pageIndicatorAlpha"
+            )
             Text(
                 pageIndicator,
                 style = MaterialTheme.typography.labelMedium,
                 color = Color(palette.secondaryText),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = navBarPad + 40.dp)
+                    .padding(bottom = navBarPad + 22.dp)
+                    .graphicsLayer { alpha = indicatorAlpha }
             )
         }
     }
@@ -620,12 +631,13 @@ internal fun ScrollContent(
     onOpenComments: (String, Int) -> Unit,
     onProgress: () -> Unit,
     onVisibleParaChange: (Int) -> Unit,
-    selectionMode: Boolean
+    selectionMode: Boolean,
+    anchorVersion: Long = 0L
 ) {
     val listState = rememberLazyListState()
     val adaptive = LocalAdaptiveMetrics.current
 
-    LaunchedEffect(chapterId, paragraphs) {
+    LaunchedEffect(chapterId, paragraphs, anchorVersion) {
         val anchor = readPosition()
         listState.scrollToItem(anchor.paragraph.coerceIn(0, paragraphs.lastIndex.coerceAtLeast(0)), anchor.scroll)
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }

@@ -187,7 +187,13 @@ fun SettingRow(
             Spacer(Modifier.width(12.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             if (subtitle != null) {
                 Text(
                     subtitle,
@@ -198,17 +204,19 @@ fun SettingRow(
                 )
             }
         }
-        if (trailing != null) trailing()
+        if (trailing != null) {
+            Spacer(Modifier.width(12.dp))
+            trailing()
+        }
     }
 }
 
-/** [原]/[AI]/[分] 章节来源徽标 */
+/** [原]/[AI] 章节来源徽标 */
 @Composable
 fun OriginBadge(originType: String, modifier: Modifier = Modifier) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val (label, color) = when (originType) {
-        "AI_CONTINUATION" -> "AI" to (if (isDark) NovelColors.IndigoLight else NovelColors.BadgeAi)
-        "AI_BRANCH" -> "分" to NovelColors.BadgeBranch
+        "AI_CONTINUATION", "AI_BRANCH" -> "AI" to (if (isDark) NovelColors.IndigoLight else NovelColors.BadgeAi)
         else -> "原" to (if (isDark) Color(0xFFB5B5C2) else NovelColors.BadgeOriginal)
     }
     Box(

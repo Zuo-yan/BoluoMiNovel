@@ -2,6 +2,9 @@ package com.novelai.assistant.ui.novel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.novelai.assistant.data.generation.BackgroundGenerationState
+import com.novelai.assistant.data.generation.GenerationNavBus
+import com.novelai.assistant.data.generation.GenerationTaskManager
 import com.novelai.assistant.data.prefs.AppThemeMode
 import com.novelai.assistant.data.prefs.ReadingPreferencesRepository
 import com.novelai.assistant.data.tts.ListeningNavBus
@@ -19,7 +22,9 @@ import javax.inject.Inject
 class AppViewModel @Inject constructor(
     private val readingPreferencesRepository: ReadingPreferencesRepository,
     private val ttsPlayer: TtsPlayer,
-    val listeningNavBus: ListeningNavBus
+    val listeningNavBus: ListeningNavBus,
+    private val generationTaskManager: GenerationTaskManager,
+    val generationNavBus: GenerationNavBus
 ) : ViewModel() {
 
     /** null = 加载中；true = 已完成引导 */
@@ -37,11 +42,21 @@ class AppViewModel @Inject constructor(
     val ttsBookTitle: StateFlow<String> = ttsPlayer.currentBookTitle
     val ttsChapterTitle: StateFlow<String> = ttsPlayer.currentChapterTitle
 
+    val generationState: StateFlow<BackgroundGenerationState?> = generationTaskManager.state
+
     val listenPillPosition: StateFlow<Pair<Float, Float>> = readingPreferencesRepository.listenPillPosition
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.78f to 0.52f)
 
     fun toggleTtsPlayPause() {
         if (ttsPlayer.paused.value) ttsPlayer.resume() else ttsPlayer.pause()
+    }
+
+    fun stopBackgroundGeneration() {
+        generationTaskManager.stop()
+    }
+
+    fun dismissBackgroundGeneration() {
+        generationTaskManager.dismiss()
     }
 
     fun saveListenPillPosition(xFrac: Float, yFrac: Float) {

@@ -38,31 +38,30 @@ class ReaderRefactorTest {
     )
 
     @Test
-    fun tocTreePlacesBranchesUnderParentWithDepthAndFiltersCorrectly() {
+    fun tocTreePlacesContinuationsUnderParentWithDepthAndFiltersCorrectly() {
         val c1 = ch("c1", 0, ChapterOriginType.ORIGINAL)
         val c2 = ch("c2", 1, ChapterOriginType.ORIGINAL)
-        val b1 = ch("b1", 2, ChapterOriginType.AI_BRANCH, parentId = "c1")
-        val b2 = ch("b2", 3, ChapterOriginType.AI_CONTINUATION, parentId = "b1")
-        val chapters = listOf(c1, c2, b1, b2)
+        val a1 = ch("a1", 2, ChapterOriginType.AI_CONTINUATION, parentId = "c1")
+        val a2 = ch("a2", 3, ChapterOriginType.AI_CONTINUATION, parentId = "a1")
+        val chapters = listOf(c1, c2, a1, a2)
 
-        val tree = ReaderTocTree.filterAndBuild(chapters, TocFilter.TREE)
-        assertEquals(listOf("c1", "b1", "b2", "c2"), tree.map { it.chapter.id })
-        assertEquals(listOf(0, 1, 2, 0), tree.map { it.depth })
+        val allTree = ReaderTocTree.filterAndBuild(chapters, TocFilter.ALL)
+        assertEquals(listOf("c1", "a1", "a2", "c2"), allTree.map { it.chapter.id })
+        assertEquals(listOf(0, 1, 2, 0), allTree.map { it.depth })
 
         assertEquals(
             listOf("c1", "c2"),
             ReaderTocTree.filterAndBuild(chapters, TocFilter.ORIGINAL).map { it.chapter.id }
         )
-        assertEquals(
-            listOf("b1", "b2"),
-            ReaderTocTree.filterAndBuild(chapters, TocFilter.AI).map { it.chapter.id }
-        )
+        val aiOnly = ReaderTocTree.filterAndBuild(chapters, TocFilter.AI)
+        assertEquals(listOf("a1", "a2"), aiOnly.map { it.chapter.id })
+        assertEquals(listOf(0, 1), aiOnly.map { it.depth })
     }
 
     @Test
     fun tocTreeHandlesCyclesWithoutInfiniteRecursion() {
-        val a = ch("a", 0, ChapterOriginType.AI_BRANCH, parentId = "b")
-        val b = ch("b", 1, ChapterOriginType.AI_BRANCH, parentId = "a")
+        val a = ch("a", 0, ChapterOriginType.AI_CONTINUATION, parentId = "b")
+        val b = ch("b", 1, ChapterOriginType.AI_CONTINUATION, parentId = "a")
         val tree = ReaderTocTree.buildTree(listOf(a, b))
         assertEquals(listOf("a", "b"), tree.map { it.chapter.id })
     }
